@@ -448,7 +448,14 @@ def _prop_value_table():
                 ),
                 key="item_key",
             ):
-                html.Td(v_text=("item_key",), classes="text-center")
+                with html.Td():
+                    html.P(v_text=("item_key",), classes="text-center")
+                    html.P(
+                            "This will be the description of the item. It can be very long and will be new lined if it exceeds the width of the table cell.",
+                            style="font-size: 0.8em; color: #aaa; padding-left: 20px; padding-right: 20px;",
+                            # Optionales v_if, falls manche Keys gar keine Beschreibung haben:
+                            # v_if=("descriptions[item_key] !== undefined",),
+                    )
                 html.Td(
                     v_if="edit_mode == all_edit_modes['view_mode']",
                     v_text=("item_val",),
