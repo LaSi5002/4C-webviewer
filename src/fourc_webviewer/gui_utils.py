@@ -451,10 +451,9 @@ def _prop_value_table():
                 with html.Td(classes="text-center"):
                     html.P(v_text=("item_key",))
                     html.P(
-                        v_text=("json_schema['properties']['IO']['properties']['STDOUTEVERY']['description']",),
+                        v_if=("json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description']",),
+                        v_text=("json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",),
                         style="font-size: 0.8em; color: #aaa; padding-left: 20px; padding-right: 20px;",
-                        # Optionales v_if, falls manche Keys gar keine Beschreibung haben:
-                        # v_if=("descriptions[item_key] !== undefined",),
                     )
                 html.Td(
                     v_if="edit_mode == all_edit_modes['view_mode']",
