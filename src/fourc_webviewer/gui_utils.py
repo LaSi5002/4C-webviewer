@@ -449,16 +449,18 @@ def _prop_value_table():
                 key="item_key",
             ):
                 with html.Td(classes="text-center"):
-                    html.P(v_text=("item_key",))
-                    html.P(
-                        v_if=(
-                            "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description']",
-                        ),
-                        v_text=(
-                            "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",
-                        ),
-                        style="font-size: 0.8em; color: #aaa; padding-left: 20px; padding-right: 20px;",
-                    )
+                    with vuetify.VTooltip(location="bottom"):
+                        with html.Template(v_slot_activator="{ props }"):
+                            html.P(v_text=("item_key",), v_bind="props")
+                        html.P(
+                            v_text=(
+                                "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",
+                            ),
+                            v_if=(
+                                "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description']",
+                            ),
+                            style="max-width: 450px;",
+                        )
                 html.Td(
                     v_if="edit_mode == all_edit_modes['view_mode']",
                     v_text=("item_val",),
@@ -585,17 +587,18 @@ def _materials_panel():
                     ):
                         # html.Td("awdawdawd")#v_text=("param_key",))
                         with html.Td(classes="text-center"):
-                            html.P(v_text=("param_key",))
-                            html.P(
-                                v_text=(
-                                    "json_schema?.properties?.MATERIALS?.items?.oneOf?"
-                                    ".find(v => v.properties?.[materials_section[selected_material]?.TYPE])?"
-                                    ".properties?.[materials_section[selected_material]?.TYPE]?.properties?"
-                                    ".[param_key]?.description || 'Error on parameter description'",
-                                ),
-                                # v_text=("json_schema?.properties?.MATERIALS?.items?.oneOf?.find(v => v.properties?.['MAT_electrode'])?.properties?.['MAT_electrode']?.description || 'no description'",),
-                                style="font-size: 0.8em; color: #aaa; padding-left: 20px; padding-right: 20px;",
-                            )
+                            with vuetify.VTooltip(location="bottom"):
+                                with html.Template(v_slot_activator="{ props }"):
+                                    html.P(v_text=("param_key",), v_bind="props")
+                                html.P(
+                                    v_text=(
+                                        "json_schema?.properties?.MATERIALS?.items?.oneOf?"
+                                        ".find(v => v.properties?.[materials_section[selected_material]?.TYPE])?"
+                                        ".properties?.[materials_section[selected_material]?.TYPE]?.properties?"
+                                        ".[param_key]?.description || 'Error on parameter description'",
+                                    ),
+                                    style="max-width: 450px;",
+                                )
                         html.Td(
                             v_text=("param_val",),
                         )

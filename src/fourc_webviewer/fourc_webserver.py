@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
+from fourcipp import ALL_SECTIONS, CONFIG, LEGACY_SECTIONS, SECTIONS
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
@@ -26,7 +27,6 @@ from fourc_webviewer.input_file_utils.io_utils import (
 )
 from fourc_webviewer.python_utils import convert_string2number, find_value_recursively
 
-from fourcipp import ALL_SECTIONS, CONFIG, LEGACY_SECTIONS, SECTIONS
 # always set pyvista to plot off screen with Trame
 pv.OFF_SCREEN = True
 
