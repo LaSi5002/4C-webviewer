@@ -480,9 +480,12 @@ def _prop_value_table():
                             "general_sections[selected_main_section_name][selected_section_name][item_key]",  # binding item_val directly does not work, since Object.entries(...) creates copies for the mutable objects
                         ),
                         update_modelValue="flushState('general_sections')",  # this is required in order to flush the state changes correctly to the server, as our passed on v-model is a nested variable
-                        classes="w-80",
+                        classes="w-80 pb-1",
                         dense=True,
-                        hide_details=True,
+                        error=True,
+                        color="error",
+                        bg_color="rgba(255, 0, 0, 0.1)",
+                        error_messages=("'This property is not modifiable!2'",),
                     )
 
 
