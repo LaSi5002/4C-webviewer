@@ -9,7 +9,9 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
+import yaml
 from fourcipp import CONFIG
+from fourcipp.fourc_input import FourCInput, ValidationError
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
@@ -151,6 +153,9 @@ class FourCWebServer:
             Path(self._server_vars["temp_dir_object"].name)
             / f"new_{self.state.fourc_yaml_file['name']}"
         )
+        # dict to store input errors for the input validation
+        # imitates structure of self.state.general_sections
+        self.state.input_error_dict = {}
 
         # get state variables of the general sections
         self.init_general_sections_state_and_server_vars()
@@ -1104,6 +1109,50 @@ class FourCWebServer:
             self.state.export_status = self.state.all_export_statuses["success"]
         else:
             self.state.export_status = self.state.all_export_statuses["error"]
+
+    def parse_validation_error_text(self, text):
+        """Parse a ValidationError message string (with multiple "- Parameter
+        in [...]" blocks) into a nested dict."""
+        error_dict = {}
+        # Match "- Parameter in [...]" blocks up until the next one or end of string
+        block_re = re.compile(
+            r"- Parameter in (?P<path>(?:\[[^\]]+\])+)\n"
+            r"(?P<body>.*?)(?=(?:- Parameter in )|\Z)",
+            re.DOTALL,
+        )
+        for m in block_re.finditer(text):
+            path_str = m.group("path")
+            body = m.group("body")
+
+            # extract the Error: line
+            err_m = re.search(r"Error:\s*(.+)", body)
+            if not err_m:
+                continue
+            err_msg = err_m.group(1).strip()
+
+            keys = re.findall(r'\["([^"]+)"\]', path_str)
+
+            # walk/create nested dicts, then assign the message at the leaf
+            cur = error_dict
+            for key in keys[:-1]:
+                cur = cur.setdefault(key, {})
+            cur[keys[-1]] = err_msg
+
+        return error_dict
+
+    @change("general_sections")
+    def on_sections_change(self, general_sections, **kwargs):
+        """Reaction to change of state.general_sections."""
+        self.sync_server_vars_from_state()
+        self.convert_string2num_all_sections()
+        try:
+            FourCInput(self._server_vars["fourc_yaml_content"]).validate()
+            self.state.input_error_dict = {}
+        except ValidationError as exc:
+            self.state.input_error_dict = self.parse_validation_error_text(
+                str(exc.args[0])
+            )  # exc.args[0] is the error message
+            return False
 
     """ --- Other helper functions"""
 

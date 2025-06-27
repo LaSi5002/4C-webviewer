@@ -487,6 +487,9 @@ def _prop_value_table():
                     v_if="edit_mode == all_edit_modes['edit_mode']",
                     classes="text-center w-50",
                 ):
+                    item_error = (
+                        "input_error_dict[selected_main_section_name]?.[item_key]"
+                    )
                     vuetify.VTextField(
                         v_model=(
                             "general_sections[selected_main_section_name][selected_section_name][item_key]",  # binding item_val directly does not work, since Object.entries(...) creates copies for the mutable objects
@@ -494,10 +497,11 @@ def _prop_value_table():
                         update_modelValue="flushState('general_sections')",  # this is required in order to flush the state changes correctly to the server, as our passed on v-model is a nested variable
                         classes="w-80 pb-1",
                         dense=True,
-                        error=True,
-                        color="error",
-                        bg_color="rgba(255, 0, 0, 0.1)",
-                        error_messages=("'This property is not modifiable!2'",),
+                        color=f"{item_error} && error",
+                        # bg_color=f"rgba(255, 0, 0, 0.1)", looks really nice
+                        error_messages=(
+                            f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                        ),
                     )
 
 
