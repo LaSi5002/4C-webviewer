@@ -490,17 +490,68 @@ def _prop_value_table():
                     item_error = (
                         "input_error_dict[selected_main_section_name]?.[item_key]"
                     )
+                    # if item is a string, number or integer -> use VTextField
                     vuetify.VTextField(
                         v_model=(
                             "general_sections[selected_main_section_name][selected_section_name][item_key]",  # binding item_val directly does not work, since Object.entries(...) creates copies for the mutable objects
+                        ),
+                        v_if=(
+                            "(json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'string' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'number' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'integer')"
+                            "&& !json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['enum']"
                         ),
                         update_modelValue="flushState('general_sections')",  # this is required in order to flush the state changes correctly to the server, as our passed on v-model is a nested variable
                         classes="w-80 pb-1",
                         dense=True,
                         color=f"{item_error} && error",
-                        # bg_color=f"rgba(255, 0, 0, 0.1)", looks really nice
+                        bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
                         error_messages=(
                             f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                        ),
+                    )
+                    # if item is a boolean -> use VSwitch
+                    with html.Div(
+                        v_if=(
+                            "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] === 'boolean'"
+                        ),
+                        classes="d-flex align-center justify-center",
+                    ):
+                        vuetify.VSwitch(
+                            v_model=(
+                                "general_sections[selected_main_section_name][selected_section_name][item_key]"
+                            ),
+                            classes="mt-4",
+                            update_modelValue="flushState('general_sections')",
+                            class_="mx-100",
+                            dense=True,
+                            color="primary",
+                        )
+                    # if item is an enum -> use VAutocomplete
+                    (
+                        vuetify.VAutocomplete(
+                            v_model=(
+                                "general_sections[selected_main_section_name]"
+                                "[selected_section_name][item_key]"
+                            ),
+                            v_if=(
+                                "json_schema['properties']?.[selected_section_name]"
+                                "?.['properties']?.[item_key]?.['enum']"
+                            ),
+                            update_modelValue="flushState('general_sections')",
+                            # bind the enum array as items
+                            items=(
+                                "json_schema['properties'][selected_section_name]['properties'][item_key]['enum']",
+                            ),
+                            dense=True,
+                            solo=True,
+                            filterable=True,
+                            classes="w-80 pb-1",
+                            color=f"{item_error} && error",
+                            bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
+                            error_messages=(
+                                f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                            ),
                         ),
                     )
 

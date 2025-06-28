@@ -56,8 +56,11 @@ def smart_string2number_cast(input_string):
     Args:
         input_string (str): input string to be converted.
     Returns:
-        int | float | str: converted value.
+        int | float | str | object: converted value.
     """
+    # otherwise boolean values are converted to 0/1
+    if not isinstance(input_string, str):
+        return input_string
     try:
         # first convert to float
         input_float = float(input_string)

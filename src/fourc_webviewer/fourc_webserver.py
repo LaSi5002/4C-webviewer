@@ -1143,10 +1143,12 @@ class FourCWebServer:
     @change("general_sections")
     def on_sections_change(self, general_sections, **kwargs):
         """Reaction to change of state.general_sections."""
+        self.convert_string2num_all_sections()  # is more of a fix because it messes with the live input
         self.sync_server_vars_from_state()
-        self.convert_string2num_all_sections()
         try:
-            FourCInput(self._server_vars["fourc_yaml_content"]).validate()
+            fourcinput = FourCInput(self._server_vars["fourc_yaml_content"])
+            # fourcinput.convert_to_native_types() # doesn't seem to work at the moment
+            fourcinput.validate()
             self.state.input_error_dict = {}
         except ValidationError as exc:
             self.state.input_error_dict = self.parse_validation_error_text(
