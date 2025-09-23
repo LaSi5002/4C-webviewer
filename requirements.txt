@@ -161,7 +161,7 @@ referencing==0.36.2
     #   fourcipp
     #   jsonschema
     #   jsonschema-specifications
-requests==2.32.3
+requests==2.32.4
     # via pooch
 rich==14.0.0
     # via meshio
@@ -213,7 +213,7 @@ typing-extensions==4.13.2
     #   referencing
 tzdata==2025.2
     # via pandas
-urllib3==2.4.0
+urllib3==2.5.0
     # via requests
 virtualenv==20.31.2
     # via pre-commit

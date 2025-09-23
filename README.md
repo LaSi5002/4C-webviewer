@@ -43,6 +43,11 @@ Install all requirements with:
 pip install -e .
 ```
 
+If you plan to develop the 4C-Webviewer, it is advisable to also install the pre-commit hook with:
+```bash
+pre-commit install
+```
+
 ## Using the 4C-Webviewer
 
 To start the webviewer, in the conda environment run:
