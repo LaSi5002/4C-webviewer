@@ -1,5 +1,4 @@
-"""
-I/O for Exodus II. This file is based on the meshio project see:
+"""I/O for Exodus II. This file is based on the meshio project see:
 
 https://github.com/nschloe/meshio/blob/main/src/meshio/exodus/_exodus.py
 """
@@ -7,7 +6,6 @@ https://github.com/nschloe/meshio/blob/main/src/meshio/exodus/_exodus.py
 import re
 
 import numpy as np
-
 from meshio.__about__ import __version__
 from meshio._common import warn
 from meshio._exceptions import ReadError
@@ -63,6 +61,14 @@ meshio_to_exodus_type = {v: k for k, v in exodus_to_meshio_type.items()}
 
 
 def _categorize(names):
+    """Check if there are any <name>R, <name>Z tuples or <name>X, <name>Y,
+    <name>Z triplets in the point data. If yes, they belong together.
+
+    Args:
+        names (list):  list of data names
+    Returns:
+        list, list, list: lists of triplets; single, double, triple
+    """
     # Check if there are any <name>R, <name>Z tuples or <name>X, <name>Y, <name>Z
     # triplets in the point data. If yes, they belong together.
     single = []
@@ -78,36 +84,36 @@ def _categorize(names):
             continue
         name = names[k]
         if name[-1] == "X":
-            ix = k
+            i_x = k
             try:
-                iy = names.index(name[:-1] + "Y")
+                i_y = names.index(name[:-1] + "Y")
             except ValueError:
-                iy = None
+                i_y = None
             try:
-                iz = names.index(name[:-1] + "Z")
+                i_z = names.index(name[:-1] + "Z")
             except ValueError:
-                iz = None
-            if iy and iz:
-                triple.append((name[:-1], ix, iy, iz))
-                is_accounted_for[ix] = True
-                is_accounted_for[iy] = True
-                is_accounted_for[iz] = True
+                i_z = None
+            if i_y and i_z:
+                triple.append((name[:-1], i_x, i_y, i_z))
+                is_accounted_for[i_x] = True
+                is_accounted_for[i_y] = True
+                is_accounted_for[i_z] = True
             else:
-                single.append((name, ix))
-                is_accounted_for[ix] = True
+                single.append((name, i_x))
+                is_accounted_for[i_x] = True
         elif name[-2:] == "_R":
-            ir = k
+            i_r = k
             try:
-                iz = names.index(name[:-2] + "_Z")
+                i_z = names.index(name[:-2] + "_Z")
             except ValueError:
-                iz = None
-            if iz:
-                double.append((name[:-2], ir, iz))
-                is_accounted_for[ir] = True
-                is_accounted_for[iz] = True
+                i_z = None
+            if i_z:
+                double.append((name[:-2], i_r, i_z))
+                is_accounted_for[i_r] = True
+                is_accounted_for[i_z] = True
             else:
-                single.append((name, ir))
-                is_accounted_for[ir] = True
+                single.append((name, i_r))
+                is_accounted_for[i_r] = True
         else:
             single.append((name, k))
             is_accounted_for[k] = True
@@ -120,6 +126,15 @@ def _categorize(names):
 
 
 def read_exodus(filename, use_set_names=False):  # noqa: C901
+    """Reads a given exodus file.
+
+    Args:
+        filename (str | Path): file to be read.
+        use_set_names (bool): should the set names for point and cell sets be utilized?
+
+    Returns:
+        meshio.Mesh: mesh object corresponding to the input exo file.
+    """
     import netCDF4
 
     with netCDF4.Dataset(filename) as nc:
@@ -162,6 +177,7 @@ def read_exodus(filename, use_set_names=False):  # noqa: C901
                     element_running_index, element_running_index + len(value[:])
                 )
                 cells.append((meshio_type, value[:] - 1))
+                element_running_index += len(value[:])
             elif key == "coord":
                 points = nc.variables["coord"][:].T
             elif key == "coordx":
@@ -252,25 +268,34 @@ def read_exodus(filename, use_set_names=False):  # noqa: C901
 
 
 class FourCGeometry:
-
     def __init__(
         self,
         mesh: Mesh,
         element_blocks: dict[str, np.array],
         node_sets: dict[str, np.array],
     ):
+        """Initialize geometry class.
+
+        Args:
+            mesh (meshio.Mesh): mesh object.
+            element_blocks (dict): element blocks as a dictionary.
+            node_sets (dict): nodesets as a dictionary.
+        """
         self.mesh = mesh
         self.element_blocks = element_blocks
         self.node_sets = node_sets
 
     def get_element_ids_of_block(self, element_block_id):
+        """Get element ids of a given block."""
         return self.element_blocks[element_block_id]
 
     def get_node_sets(self, node_set_id):
+        """Get nodeset with given id."""
         return self.node_sets[node_set_id]
 
     @classmethod
     def from_exodus(cls, file_path):
+        """Read geometry from a given exodus file."""
         mesh = read_exodus(file_path, False)
         element_blocks = mesh.cell_sets.copy()
         node_sets = mesh.point_sets.copy()
@@ -280,6 +305,7 @@ class FourCGeometry:
         return cls(mesh, element_blocks, node_sets)
 
     def __str__(self):
+        """Print representation."""
         string = "4C Geometry"
         if self.mesh.info:
             string += "\n  Info"
