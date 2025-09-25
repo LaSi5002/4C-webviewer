@@ -310,7 +310,7 @@ class FourCWebServer:
         approach to add them up to the main section SOLVERS.
         """
 
-        self.state.json_schema = CONFIG["json_schema"]
+        self.state.json_schema = CONFIG.fourc_json_schema
 
         # define substrings of section names to exclude
         substr_to_exclude = ["DESIGN", "TOPOLOGY", "ELEMENTS", "NODE", "FUNCT"]

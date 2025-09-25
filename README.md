@@ -40,6 +40,7 @@ conda activate 4c-webviewer
 
 Install all requirements with:
 ```bash
+conda install -c conda-forge vtk=9.4.2
 pip install -e .
 ```
 
