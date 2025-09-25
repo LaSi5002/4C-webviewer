@@ -9,37 +9,6 @@ import numexpr as ne
 import numpy as np
 import plotly.express as px
 
-from fourc_webviewer.input_file_utils.io_utils import (
-    add_fourc_yaml_file_data_to_dis,
-)
-
-
-def convert_to_vtu(fourc_yaml_file_path, temp_dir):
-    """Convert fourc yaml file to vtu.
-
-    Args:
-        fourc_yaml_file_path (str, Path): Path to input file
-        temp_dir (str, Path): Temp directory
-
-    Returns:
-        str: Path to vtu file
-    """
-    # define the vtu_file_path to have the same name as the input file, but the its directory is in './temp_files'
-    vtu_file_path = str(Path(temp_dir) / f"{Path(fourc_yaml_file_path).stem}.vtu")
-
-    # convert yaml file to vtu file and return the path to the vtu file
-    try:
-        dis = lnmmeshio.read(str(fourc_yaml_file_path))
-
-        to_vtu(dis, vtu_file_path)
-    except Exception as exc:  # if file conversion not successful
-        print(
-            exc
-        )  # currently, we throw the lnmmeshio conversion error as terminal output
-        vtu_file_path = ""
-
-    return vtu_file_path
-
 
 def function_plot_figure(state_data):
     """Get function plot figure.
@@ -149,7 +118,7 @@ def return_function_from_funct_string(funct_string):
         # funct_string copy
         funct_string_copy = funct_string
 
-        # replace the defined functions in the funct_string with "np.<def_funct>"
+        # replace the defined functions in the funct_string with "<def_funct>"
         for i in range(len(def_funct)):
             funct_string_copy = funct_string_copy.replace(
                 def_funct[i], f"np.{def_funct[i]}"
@@ -174,25 +143,8 @@ def return_function_from_funct_string(funct_string):
             r"heaviside\((.*?)\)", r"heaviside(\1,0)", funct_string_copy
         )  # usage of raw strings, (.*?) is a non greedy capturing, and \1 replaces the captured value
 
-        return ne.evaluate(funct_string_copy)  # this parses string in as a function
+        return eval(
+            funct_string_copy, {"np": np}, {}
+        )  # this parses string in as a function
 
     return np.frompyfunc(funct_using_eval, 4, 1)
-
-
-def to_vtu(dis, vtu_file: str, override=True):
-    """Discretization to vtu.
-
-    Args:
-        dis (lnmmeshio.Discretization): Discretization object
-        vtu_file (str): Path to vtu file
-        override (bool, optional): Overwrite existing file. Defaults to True
-    """
-    add_fourc_yaml_file_data_to_dis(dis)
-
-    # write case file
-    lnmmeshio.write(
-        vtu_file,
-        dis,
-        file_format="vtu",
-        override=override,
-    )

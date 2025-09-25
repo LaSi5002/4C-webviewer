@@ -91,51 +91,6 @@ def write_fourc_yaml_file(fourc_yaml_content, new_fourc_yaml_file):
     return True
 
 
-def add_fourc_yaml_file_data_to_dis(dis):
-    """Adds further data contained within the yaml file (e.g. material id) to
-    the discretization from lnmmeshio."""
-    dis.compute_ids(zero_based=False)
-
-    # write node data
-    for n in dis.nodes:
-        # write node id
-        n.data["node-id"] = n.id
-        n.data["node-coords"] = n.coords
-
-        # write fibers
-        for name, f in n.fibers.items():
-            n.data["node-" + name] = f.fiber
-
-        # write dpoints
-        for dp in n.pointnodesets:
-            n.data["dpoint{0}".format(dp.id)] = 1.0
-
-        # write dlines
-        for dl in n.linenodesets:
-            n.data["dline{0}".format(dl.id)] = 1.0
-
-        # write dsurfs
-        for ds in n.surfacenodesets:
-            n.data["dsurf{0}".format(ds.id)] = 1.0
-
-        # write dvols
-        for dv in n.volumenodesets:
-            n.data["dvol{0}".format(dv.id)] = 1.0
-
-    # write element data
-    for elements in dis.elements.values():
-        for ele in elements:
-            ele.data["element-id"] = ele.id
-
-            # write mat
-            if "MAT" in ele.options:
-                ele.data["element-material"] = int(ele.options["MAT"])
-
-            # write fibers
-            for name, f in ele.fibers.items():
-                ele.data["element-" + name] = f.fiber
-
-
 def find_linked_materials(material_id, material_items):
     """Find materials linked with a material number / id recursively based on
     given material specifiers (parameters which refer to other materials). This
@@ -237,7 +192,9 @@ def get_main_and_clustered_section_names(sections_list):
             # append the main section "FUNCTIONS"
             main_sections.append("FUNCTIONS")
 
-            clustered_sections_to_be_added = []  # list of clustered sections to be added
+            clustered_sections_to_be_added = (
+                []
+            )  # list of clustered sections to be added
             # add current element to clustered sections and remove it from sections
             clustered_sections_to_be_added.append(sections.pop(0))
 
@@ -252,7 +209,6 @@ def get_main_and_clustered_section_names(sections_list):
 
             # add the clustered sections
             clustered_sections.append(clustered_sections_to_be_added)
-
         else:  # no
             # check if element already in main sections -> SHOULD NEVER HAPPEN
             if sections[0].split("/")[0] in main_sections:
@@ -359,7 +315,9 @@ def get_master_and_linked_material_indices(materials_section):
     master_mat_indices = [mat_item["MAT"] for mat_item in materials_section]
 
     # check whether some of the master materials are actually related to others, and eliminate them from the master material index list
-    linked_mat_indices = []  # list of linked material indices for each of the "master" materials: [<list of linked materials for "MASTER" 1>, <list of linked materials for "MASTER" 2>,... ]
+    linked_mat_indices = (
+        []
+    )  # list of linked material indices for each of the "master" materials: [<list of linked materials for "MASTER" 1>, <list of linked materials for "MASTER" 2>,... ]
     for master_mat_index in master_mat_indices:
         linked_mat_indices.append(
             find_linked_materials(
@@ -381,9 +339,7 @@ def get_master_and_linked_material_indices(materials_section):
                 del master_mat_indices[next_master_list_ind]
                 del linked_mat_indices[next_master_list_ind]
             # next_master_ind stays the same
-            elif set(
-                linked_mat_indices[curr_master_list_ind]
-            ).issubset(
+            elif set(linked_mat_indices[curr_master_list_ind]).issubset(
                 set(linked_mat_indices[next_master_list_ind])
             ):  # this means that the current element is not truly a master -> has to be eliminated and we also break out of the for-loop
                 del master_mat_indices[curr_master_list_ind]

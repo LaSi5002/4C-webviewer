@@ -10,13 +10,13 @@ from pathlib import Path
 import numpy as np
 import pyvista as pv
 from fourcipp import CONFIG
+from fourcipp.fourc_input import FourCInput
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
 import fourc_webviewer.pyvista_render as pv_render
 from fourc_webviewer.gui_utils import create_gui
 from fourc_webviewer.input_file_utils.fourc_yaml_file_visualization import (
-    convert_to_vtu,
     function_plot_figure,
 )
 from fourc_webviewer.input_file_utils.io_utils import (
@@ -26,6 +26,10 @@ from fourc_webviewer.input_file_utils.io_utils import (
     write_fourc_yaml_file,
 )
 from fourc_webviewer.python_utils import convert_string2number, find_value_recursively
+from fourc_webviewer.read_geometry_from_file import (
+    FourCGeometry,
+)
+
 
 # always set pyvista to plot off screen with Trame
 pv.OFF_SCREEN = True
@@ -102,10 +106,12 @@ class FourCWebServer:
         self.init_state_and_server_vars()
 
         # convert file to vtu and create dedicated render objects
-        self.state.vtu_path = convert_to_vtu(
-            fourc_yaml_file,
-            Path(self._server_vars["temp_dir_object"].name),
+        fourc_geometry = FourCGeometry(
+            fourc_yaml_file=fourc_yaml_file,
+            temp_dir=Path(self._server_vars["temp_dir_object"].name),
         )
+        self.state.vtu_path = fourc_geometry.vtu_file_path
+
         if self.state.vtu_path == "":
             self.state.read_in_status = self.state.all_read_in_statuses[
                 "vtu_conversion_error"
@@ -258,15 +264,15 @@ class FourCWebServer:
         )
 
         # get coords of node with prescribed result description
-        self._server_vars["pv_selected_result_description_node_coords"] = (
-            self._server_vars["pv_mesh"].points[
-                self.state.result_description_section[
-                    self.state.selected_result_description_id
-                ]["PARAMETERS"]["NODE"]
-                - 1,
-                :,
-            ]
-        )
+        self._server_vars[
+            "pv_selected_result_description_node_coords"
+        ] = self._server_vars["pv_mesh"].points[
+            self.state.result_description_section[
+                self.state.selected_result_description_id
+            ]["PARAMETERS"]["NODE"]
+            - 1,
+            :,
+        ]
 
         # update plotter / rendering
         pv_render.update_pv_plotter(
@@ -299,7 +305,14 @@ class FourCWebServer:
         self.state.json_schema = CONFIG.fourc_json_schema
 
         # define substrings of section names to exclude
-        substr_to_exclude = ["DESIGN", "TOPOLOGY", "ELEMENTS", "NODE", "FUNCT"]
+        substr_to_exclude = [
+            "DESIGN",
+            "TOPOLOGY",
+            "ELEMENTS",
+            "NODE",
+            "FUNCT",
+            "GEOMETRY",
+        ]
         # define full section names to exclude
         sect_to_exclude = [
             "MATERIALS",
@@ -337,9 +350,9 @@ class FourCWebServer:
                         self.state.general_sections[main_section_name] = {}
 
                     # add subsection
-                    self.state.general_sections[main_section_name][section_name] = (
-                        section_data
-                    )
+                    self.state.general_sections[main_section_name][
+                        section_name
+                    ] = section_data
 
     def sync_general_sections_from_state(self):
         """Syncs the server-side general sections based on the current values
@@ -421,9 +434,9 @@ class FourCWebServer:
             ):
                 if mat_id in linked_material_indices_item:
                     # add linked material indices
-                    mat_item_val["RELATIONSHIPS"]["LINKED MATERIALS"] = (
-                        linked_material_indices_item
-                    )
+                    mat_item_val["RELATIONSHIPS"][
+                        "LINKED MATERIALS"
+                    ] = linked_material_indices_item
 
                     # add master material index
                     mat_item_val["RELATIONSHIPS"]["MASTER MATERIAL"] = material_indices[
@@ -483,9 +496,9 @@ class FourCWebServer:
         # write to server-side content
         self._server_vars["fourc_yaml_content"]["MATERIALS"] = new_materials_section
         if new_cloning_material_map_section:
-            self._server_vars["fourc_yaml_content"]["CLONING MATERIAL MAP"] = (
-                new_cloning_material_map_section
-            )
+            self._server_vars["fourc_yaml_content"][
+                "CLONING MATERIAL MAP"
+            ] = new_cloning_material_map_section
 
     def init_design_conditions_state_and_server_vars(self):
         """Initialize the state and server variables for the design condition
@@ -677,9 +690,9 @@ class FourCWebServer:
             new_result_description_section.append({field: params})
 
         # set result description section on the server
-        self._server_vars["fourc_yaml_content"]["RESULT DESCRIPTION"] = (
-            new_result_description_section
-        )
+        self._server_vars["fourc_yaml_content"][
+            "RESULT DESCRIPTION"
+        ] = new_result_description_section
 
     def init_funct_state_and_server_vars(self):
         """Initialize the state and server variables for the function
@@ -1058,6 +1071,7 @@ class FourCWebServer:
 
         with open(temp_fourc_yaml_file, "w") as f:
             f.write(self.state.fourc_yaml_file["content"].decode("utf-8"))
+        # copy eventual exodus file as well
 
         if self._server_vars["fourc_yaml_read_in_status"]:
             self.state.read_in_status = self.state.all_read_in_statuses["success"]
@@ -1066,10 +1080,11 @@ class FourCWebServer:
             self.init_state_and_server_vars()
 
             # convert to vtu
-            self.state.vtu_path = convert_to_vtu(
-                temp_fourc_yaml_file,
-                Path(self._server_vars["temp_dir_object"].name),
+            fourc_geometry = FourCGeometry(
+                fourc_yaml_file=temp_fourc_yaml_file,
+                temp_dir=Path(self._server_vars["temp_dir_object"].name),
             )
+            self.state.vtu_path = fourc_geometry.vtu_file_path
 
             # catch eventual conversion error
             if self.state.vtu_path == "":
