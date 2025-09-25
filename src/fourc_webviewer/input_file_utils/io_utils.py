@@ -354,3 +354,22 @@ def get_master_and_linked_material_indices(materials_section):
         "master_mat_indices": master_mat_indices,
         "linked_mat_indices": linked_mat_indices,
     }
+
+
+def get_variable_data_by_name_in_funct_item(
+    funct_section_item: dict, variable_name: str
+):
+    """Retrieves the entire dictionary for the variable called <variable_name> from the specified function section item, e.g. FUNCT1.
+
+    Args:
+        funct_section_item (dict): specified function item as a
+            dictionary, adhereing to the structure utilized in the state
+            variable funct_section.
+        variable_name (str): name of the considered variable.
+    Returns:
+        dict: dictionary containing the information associated with the specified variable.
+    """
+    for k, v in funct_section_item.items():
+        if "VARIABLE" in v and v["NAME"] == variable_name:
+            return v
+    return {}

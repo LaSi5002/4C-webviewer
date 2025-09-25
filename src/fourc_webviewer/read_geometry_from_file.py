@@ -71,6 +71,87 @@ exodus_to_meshio_type = {
 }
 meshio_to_exodus_type = {v: k for k, v in exodus_to_meshio_type.items()}
 
+# special treatment when the node orders between meshio and lnmmeshio do not match
+special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order = {
+    "hexahedron27": [
+        (0, 0),  # index: meshio.mesh, items: lnmmeshio.dis, vtu node orders
+        (1, 1),
+        (2, 2),
+        (3, 3),
+        (4, 4),
+        (5, 5),
+        (6, 6),
+        (7, 7),
+        (8, 8),
+        (9, 9),
+        (10, 10),
+        (11, 11),
+        (12, 16),
+        (13, 17),
+        (14, 18),
+        (15, 19),
+        (16, 12),
+        (17, 13),
+        (18, 14),
+        (19, 15),
+        (26, 25),
+        (20, 24),
+        (25, 26),
+        (24, 23),
+        (22, 21),
+        (21, 22),
+        (23, 20),
+    ]
+}  # to be verified in more detail!
+
+
+def switch_node_order(mesh_exo: Mesh) -> Mesh:
+    """Switch node orders for read-in Exodus mesh such that the node
+    orders are consistent upon conversion to lnmmeshio's Discretization
+    object.
+
+    Args:
+        mesh_exo (meshio.Mesh): read-in Exodus mesh
+    Returns:
+        (meshio.Mesh): modified read-in Exodus mesh, with adapted order
+    """
+
+    copy_mesh_exo = mesh_exo.copy()
+
+    # run through elements
+    for cell_block in copy_mesh_exo.cells:
+
+        cell_type = cell_block.type
+
+        if cell_type in special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order:
+            # define nodal mappings
+            dis_mapping = [
+                dis_id
+                for meshio_id, (dis_id, vtu_id) in enumerate(
+                    special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order[cell_type]
+                )
+            ]
+            vtu_mapping = [
+                vtu_id
+                for meshio_id, (dis_id, vtu_id) in enumerate(
+                    special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order[cell_type]
+                )
+            ]
+
+            # apply mapping to the nodes of all elements
+            for el_id in range(len(cell_block.data)):
+                element_nodes = cell_block.data[el_id]
+                # copy the coordinates of the element nodes
+                coords_copy = copy_mesh_exo.points[element_nodes].copy()
+                # swap coordinates according to mapping exo->dis
+                copy_mesh_exo.points[element_nodes] = coords_copy[dis_mapping]
+                # copy the coordinates of the element nodes
+                coords_copy = copy_mesh_exo.points[element_nodes].copy()
+                # swap coordinates according to mapping exo->vtu
+                copy_mesh_exo.points[element_nodes] = coords_copy[vtu_mapping]
+
+    return copy_mesh_exo
+
 
 def _categorize(names):
     """Check if there are any <name>R, <name>Z tuples or <name>X, <name>Y,
@@ -350,6 +431,11 @@ class FourCGeometry:
                     filename=self._mesh_file,
                     use_set_names=False,
                 )
+                # self._mesh_exo =
+                # switch_node_order(mesh_exo=self._mesh_exo) #-> not
+                # yet, this will mess up the applied boundary
+                # conditions, because 4C uses another order format
+
                 # convert mesh to discretization preliminarily, without further info from the yaml file -> this is then added below
                 self._dis = mesh2Discretization(mesh=self._mesh_exo)
 
@@ -358,6 +444,7 @@ class FourCGeometry:
 
                 # convert to vtu
                 self.convert_dis_to_vtu()
+
             except Exception as exc:
                 print(
                     exc
@@ -636,29 +723,3 @@ class FourCGeometry:
         string += f"\n Geometry type: {self.geom_type}"
         string += f"\n Path to converted vtu: {self.vtu_file_path}"
         return string
-
-
-temp_dir = "/home/dragos-ana/temp"
-
-fourc_geom_exo = FourCGeometry(
-    fourc_yaml_file="/home/dragos-ana/workspace/4C/tests/tutorials/tutorial_battery.4C.yaml",
-    temp_dir=temp_dir,
-)
-print(fourc_geom_exo)
-
-
-fourc_geom_legacy = FourCGeometry(
-    fourc_yaml_file=Path(__file__).parents[1]
-    / "fourc_webviewer_default_files/ssti_mono_3D_3hex8_elch_s2i_butlervolmerthermo_growthlaw.4C.yaml",
-    temp_dir=temp_dir,
-)
-print(fourc_geom_legacy)
-
-
-# current_default_file = Path()
-# temp_vtu_path_current = convert_to_vtu(
-#    fourc_yaml_file_path=current_default_file, temp_dir="/home/dragos-ana/temp"
-# )
-# pv_current = pv.read(filename=temp_vtu_path_current)
-# print(pv_current.point_data)
-# print(pv_current.cell_data)

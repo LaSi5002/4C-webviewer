@@ -18,12 +18,14 @@ import fourc_webviewer.pyvista_render as pv_render
 from fourc_webviewer.gui_utils import create_gui
 from fourc_webviewer.input_file_utils.fourc_yaml_file_visualization import (
     function_plot_figure,
+    get_variable_names_in_funct_expression,
 )
 from fourc_webviewer.input_file_utils.io_utils import (
     create_file_object_for_browser,
     get_master_and_linked_material_indices,
     read_fourc_yaml_file,
     write_fourc_yaml_file,
+    get_variable_data_by_name_in_funct_item,
 )
 from fourc_webviewer.python_utils import convert_string2number, find_value_recursively
 from fourc_webviewer.read_geometry_from_file import (
@@ -737,26 +739,81 @@ class FourCWebServer:
             # state variable (and the server variable)
             self.state.funct_section[funct_name] = {}
 
-            # go through component data and check whether the function
-            # component is currently visualizable...
-            for component_index, component_data in enumerate(funct_data):
-                if not all(
-                    [
-                        (
-                            component_key
-                            in ["COMPONENT", "SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
-                        )
-                        for component_key in component_data.keys()
-                    ]
-                ):
-                    funct_items[funct_name][component_index]["VISUALIZATION"] = False
-                else:
-                    funct_items[funct_name][component_index]["VISUALIZATION"] = True
+            # go through item data and check whether function
+            # components are currently visualizable...
+            for item_index, item_data in enumerate(funct_data):
+                # check whether we have a component or a variable
+                if "COMPONENT" in item_data:
+                    if not all(
+                        [
+                            (
+                                component_key
+                                in ["COMPONENT", "SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
+                            )
+                            for component_key in item_data.keys()
+                        ]
+                    ):
+                        item_data["VISUALIZATION"] = False
+                    else:
+                        item_data["VISUALIZATION"] = True
 
-                # append the component to our state variable
-                self.state.funct_section[funct_name][f"Item {component_index + 1}"] = {
-                    k: v for k, v in component_data.items() if k != "PARSED_FUNCT"
-                }
+                    # append the component to our state variable
+                    self.state.funct_section[funct_name][
+                        f"Component {item_data['COMPONENT']}"
+                    ] = {k: v for k, v in item_data.items() if k != "PARSED_FUNCT"}
+
+                elif "VARIABLE" in item_data:
+                    supported_variable_types = ["linearinterpolation", "multifunction"]
+                    if not item_data["TYPE"]:
+                        raise Exception(
+                            f"Type has to be provided for variable with data {item_data}"
+                        )
+                    item_data["VISUALIZATION"] = (
+                        item_data["TYPE"] in supported_variable_types
+                    )
+
+                    # append the variable to our state variable
+                    self.state.funct_section[funct_name][
+                        f"Variable {item_data['VARIABLE']}: {item_data['NAME']}"
+                    ] = {k: v for k, v in item_data.items()}
+
+                else:
+                    # warning that this function item is not known
+                    print(f"Unknown function item {item_data} for funct {funct_name}!")
+
+                    # we don't enable visualization
+                    item_data["VISUALIZATION"] = False
+
+                    # append the variable to our state variable
+                    self.state.funct_section[funct_name][
+                        f"Function item {item_index}"
+                    ] = {k: v for k, v in item_data.items()}
+
+            # knowing all variables of the function now, recheck whether the components are truly visualizable based on whether their contained variables are all visualizable / evaluable
+            for item_index, item_data in enumerate(funct_data):
+                # check whether we have a visualizable component
+                if "COMPONENT" in item_data and item_data["VISUALIZATION"]:
+                    # get all variables contained within the functional expression of the component
+                    all_contained_var_names = get_variable_names_in_funct_expression(
+                        item_data["SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
+                    )
+
+                    # loop through contained variables and see whether they are evaluable
+                    for contained_var_name in all_contained_var_names:
+                        # find the specific item within the function section for this variable
+                        var_data = get_variable_data_by_name_in_funct_item(
+                            funct_section_item=self.state.funct_section[funct_name],
+                            variable_name=contained_var_name,
+                        )
+                        if not var_data:
+                            raise Exception(
+                                f"Variable {contained_var_name} cannot be found in function item {item_data}!"
+                            )
+                        if not var_data["VISUALIZATION"]:
+                            self.state.funct_section[funct_name][
+                                f"Component {item_data['COMPONENT']}"
+                            ]["VISUALIZATION"] = False
+                            break
 
         # set user selection variables
         self.state.selected_funct = next(
