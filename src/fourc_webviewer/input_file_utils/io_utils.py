@@ -192,9 +192,7 @@ def get_main_and_clustered_section_names(sections_list):
             # append the main section "FUNCTIONS"
             main_sections.append("FUNCTIONS")
 
-            clustered_sections_to_be_added = (
-                []
-            )  # list of clustered sections to be added
+            clustered_sections_to_be_added = []  # list of clustered sections to be added
             # add current element to clustered sections and remove it from sections
             clustered_sections_to_be_added.append(sections.pop(0))
 
@@ -315,9 +313,7 @@ def get_master_and_linked_material_indices(materials_section):
     master_mat_indices = [mat_item["MAT"] for mat_item in materials_section]
 
     # check whether some of the master materials are actually related to others, and eliminate them from the master material index list
-    linked_mat_indices = (
-        []
-    )  # list of linked material indices for each of the "master" materials: [<list of linked materials for "MASTER" 1>, <list of linked materials for "MASTER" 2>,... ]
+    linked_mat_indices = []  # list of linked material indices for each of the "master" materials: [<list of linked materials for "MASTER" 1>, <list of linked materials for "MASTER" 2>,... ]
     for master_mat_index in master_mat_indices:
         linked_mat_indices.append(
             find_linked_materials(
@@ -339,7 +335,9 @@ def get_master_and_linked_material_indices(materials_section):
                 del master_mat_indices[next_master_list_ind]
                 del linked_mat_indices[next_master_list_ind]
             # next_master_ind stays the same
-            elif set(linked_mat_indices[curr_master_list_ind]).issubset(
+            elif set(
+                linked_mat_indices[curr_master_list_ind]
+            ).issubset(
                 set(linked_mat_indices[next_master_list_ind])
             ):  # this means that the current element is not truly a master -> has to be eliminated and we also break out of the for-loop
                 del master_mat_indices[curr_master_list_ind]
@@ -359,7 +357,8 @@ def get_master_and_linked_material_indices(materials_section):
 def get_variable_data_by_name_in_funct_item(
     funct_section_item: dict, variable_name: str
 ):
-    """Retrieves the entire dictionary for the variable called <variable_name> from the specified function section item, e.g. FUNCT1.
+    """Retrieves the entire dictionary for the variable called <variable_name>
+    from the specified function section item, e.g. FUNCT1.
 
     Args:
         funct_section_item (dict): specified function item as a

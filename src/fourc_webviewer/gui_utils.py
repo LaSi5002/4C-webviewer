@@ -540,7 +540,9 @@ def _functions_panel(server):
                         display_mode_bar="true",
                     )
                     server.controller.figure_update = figure.update
-                    if server.state.funct_section[server.state.selected_funct][
+                    if server.state.funct_section[
+                        server.state.selected_funct
+                    ][
                         server.state.selected_funct_item
                     ][
                         "VISUALIZATION"

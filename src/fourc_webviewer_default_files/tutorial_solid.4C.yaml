@@ -3,7 +3,7 @@ PROBLEM TYPE:
 PROBLEM SIZE:
   DIM: 3
 STRUCTURE GEOMETRY:
-  FILE: "/home/dragos-ana/workspace/4C/tests/tutorials/tutorial_solid_geo.e"
+  FILE: "tutorial_solid_geo.e"
   SHOW_INFO: "detailed_summary"
   ELEMENT_BLOCKS:
     - ID: 1

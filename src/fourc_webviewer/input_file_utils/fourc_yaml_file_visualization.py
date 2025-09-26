@@ -8,17 +8,18 @@ import lnmmeshio
 import numexpr as ne
 import numpy as np
 import plotly.express as px
+
 from fourc_webviewer.input_file_utils.io_utils import (
     get_variable_data_by_name_in_funct_item,
 )
-
 
 # functional expressions / constants known by 4C, that are replaced by the numpy counterpart during evaluation
 DEF_FUNCT = ["exp", "sqrt", "log", "sin", "cos", "tan", "heaviside", "pi"]
 
 
 def get_variable_names_in_funct_expression(funct_expression: str):
-    """Returns all variable names present in a functional expression, using regular expressions."""
+    """Returns all variable names present in a functional expression, using
+    regular expressions."""
     vars_found = re.findall(r"[A-Za-z_]+", funct_expression)
     return [
         v for v in vars_found if v not in DEF_FUNCT and v not in ["t", "x", "y", "z"]
@@ -159,40 +160,45 @@ def return_function_from_funct_string(funct_string: str, variable_funct_strings:
         Returns:
             parsed object using ast.literal_eval
         """
-        # funct_string copy
+        # Create a safe environment
+        safe_dict = {
+            "x": x,
+            "y": y,
+            "z": z,
+            "t": t,
+            "sin": np.sin,
+            "cos": np.cos,
+            "exp": np.exp,
+            "log": np.log,
+            "sqrt": np.sqrt,
+            "where": np.where,
+            "pi": np.pi,
+            # "heaviside": np.heaviside, -> no heaviside, numexpr will
+            # not deal with this
+            # add other safe functions as needed
+        }
+
         funct_string_copy = funct_string
 
-        # replace variables by their functional expressions
+        # replace variables by their
         for k, v in variable_funct_strings.items():
             funct_string_copy = re.sub(
                 rf"(?<![A-Za-z]){k}(?![A-Za-z])", v, funct_string_copy
             )
 
-        # replace the defined functions in the funct_string with "<DEF_FUNCT>"
-        for i in range(len(DEF_FUNCT)):
-            funct_string_copy = funct_string_copy.replace(
-                DEF_FUNCT[i], f"np.{DEF_FUNCT[i]}"
-            )
-
-        # replace the used power sign
+        # replace heaviside functions with where / np.where
         funct_string_copy = funct_string_copy.replace("^", "**")
-
-        # replace variables
-        funct_string_copy = (
-            funct_string_copy.replace("x", str(x))
-            .replace("y", str(y))
-            .replace("z", str(z))
-            .replace("t", str(t))
+        funct_string_copy = re.sub(
+            r"heaviside\(([^),]+)\)", r"where(\1 >= 0, 1, 0)", funct_string_copy
+        )
+        funct_string_copy = re.sub(
+            r"heaviside\(([^),]+),\s*([^)]+)\)",
+            r"where(\1 > 0, 1, where(\1 == 0, \2, 0))",
+            funct_string_copy,
         )
 
-        # for heaviside: np.heaviside takes two arguments -> second argument denotes the function value at the first argument -> we set it by default to 0
-        funct_string_copy = re.sub(
-            r"heaviside\((.*?)\)", r"heaviside(\1,0)", funct_string_copy
-        )  # usage of raw strings, (.*?) is a non greedy capturing, and \1 replaces the captured value
-
-        return eval(
-            funct_string_copy, {"np": np}, {}
-        )  # this parses string in as a function
+        # Numexpr evaluation (much safer)
+        return ne.evaluate(funct_string_copy, local_dict=safe_dict)
 
     return np.frompyfunc(funct_using_eval, 4, 1)
 
@@ -200,7 +206,8 @@ def return_function_from_funct_string(funct_string: str, variable_funct_strings:
 def construct_funct_string_from_variable_data(
     variable_name: str, funct_section_item: dict
 ):
-    """Constructs a functional string from the given data for a function variable."""
+    """Constructs a functional string from the given data for a function
+    variable."""
 
     # retrieve variable data
     variable_data = get_variable_data_by_name_in_funct_item(
@@ -212,8 +219,9 @@ def construct_funct_string_from_variable_data(
     match variable_data["TYPE"]:
         case "linearinterpolation":
             # get times and values
-            times, values = np.array(variable_data["TIMES"]), np.array(
-                variable_data["VALUES"]
+            times, values = (
+                np.array(variable_data["TIMES"]),
+                np.array(variable_data["VALUES"]),
             )
 
             # consistency check: time should start with 0.0
@@ -226,7 +234,7 @@ def construct_funct_string_from_variable_data(
                 if time_instant_index != 0:
                     funct_string += "+"
 
-                funct_string += f"({values[time_instant_index]}+({values[time_instant_index+1]}-{values[time_instant_index]})/({times[time_instant_index+1]}-{time_instant})*(t-{time_instant}))*heaviside(t-{time_instant})*heaviside({times[time_instant_index+1]}-t)"
+                funct_string += f"({values[time_instant_index]}+({values[time_instant_index + 1]}-{values[time_instant_index]})/({times[time_instant_index + 1]}-{time_instant})*(t-{time_instant}))*heaviside(t-{time_instant})*heaviside({times[time_instant_index + 1]}-t)"
 
             funct_string += ")"
 
@@ -247,7 +255,7 @@ def construct_funct_string_from_variable_data(
                 if time_instant_index != 0:
                     funct_string += "+"
 
-                funct_string += f"({descriptions[time_instant_index]}*heaviside(t-{time_instant})*heaviside({times[time_instant_index+1]}-t))"
+                funct_string += f"({descriptions[time_instant_index]}*heaviside(t-{time_instant})*heaviside({times[time_instant_index + 1]}-t))"
 
             funct_string += ")"
 

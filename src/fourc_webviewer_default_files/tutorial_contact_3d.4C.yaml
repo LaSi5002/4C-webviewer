@@ -7,7 +7,7 @@ PROBLEM TYPE:
   PROBLEMTYPE: "Structure"
 
 STRUCTURE GEOMETRY:
-  FILE: "/home/dragos-ana/workspace/4C/tests/tutorials/tutorial_contact_3d.e"
+  FILE: "tutorial_contact_3d.e"
   SHOW_INFO: "summary"
   ELEMENT_BLOCKS:
     - ID: 1
@@ -64,7 +64,7 @@ FUNCT1:
     TYPE: "linearinterpolation"
     NUMPOINTS: 3
     TIMES: [0, 0.1, 2]
-    VALUES: [0,0.02,0.02]
+    VALUES: [0, 0.02, 0.02]
 DESIGN SURF MORTAR CONTACT CONDITIONS 3D:
   - E: 1
     ENTITY_TYPE: node_set_id

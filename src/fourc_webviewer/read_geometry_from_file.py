@@ -4,24 +4,24 @@ https://github.com/nschloe/meshio/blob/main/src/meshio/exodus/_exodus.py
 """
 
 import re
+from pathlib import Path
 
 import numpy as np
-from meshio.__about__ import __version__
-from meshio._common import warn
-from meshio._exceptions import ReadError
-from meshio._mesh import Mesh
 import pyvista as pv
 from fourcipp.fourc_input import FourCInput
 from lnmmeshio import read, write
-from lnmmeshio.meshio_to_discretization import mesh2Discretization
 from lnmmeshio.discretization import (
-    PointNodeset,
     LineNodeset,
+    PointNodeset,
     SurfaceNodeset,
     VolumeNodeset,
 )
 from lnmmeshio.fiber import Fiber
-from pathlib import Path
+from lnmmeshio.meshio_to_discretization import mesh2Discretization
+from meshio.__about__ import __version__
+from meshio._common import warn
+from meshio._exceptions import ReadError
+from meshio._mesh import Mesh
 
 exodus_to_meshio_type = {
     "SPHERE": "vertex",
@@ -106,9 +106,8 @@ special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order = {
 
 
 def switch_node_order(mesh_exo: Mesh) -> Mesh:
-    """Switch node orders for read-in Exodus mesh such that the node
-    orders are consistent upon conversion to lnmmeshio's Discretization
-    object.
+    """Switch node orders for read-in Exodus mesh such that the node orders are
+    consistent upon conversion to lnmmeshio's Discretization object.
 
     Args:
         mesh_exo (meshio.Mesh): read-in Exodus mesh
@@ -120,7 +119,6 @@ def switch_node_order(mesh_exo: Mesh) -> Mesh:
 
     # run through elements
     for cell_block in copy_mesh_exo.cells:
-
         cell_type = cell_block.type
 
         if cell_type in special_meshio_mesh_to_lnmmeshio_dis_to_vtu_node_order:
@@ -138,17 +136,12 @@ def switch_node_order(mesh_exo: Mesh) -> Mesh:
                 )
             ]
 
-            # apply mapping to the nodes of all elements
+            # apply mappings to the nodes of all elements
             for el_id in range(len(cell_block.data)):
                 element_nodes = cell_block.data[el_id]
-                # copy the coordinates of the element nodes
-                coords_copy = copy_mesh_exo.points[element_nodes].copy()
-                # swap coordinates according to mapping exo->dis
-                copy_mesh_exo.points[element_nodes] = coords_copy[dis_mapping]
-                # copy the coordinates of the element nodes
-                coords_copy = copy_mesh_exo.points[element_nodes].copy()
-                # swap coordinates according to mapping exo->vtu
-                copy_mesh_exo.points[element_nodes] = coords_copy[vtu_mapping]
+                dis_element_nodes = element_nodes[dis_mapping]
+                vtu_element_nodes = dis_element_nodes[vtu_mapping]
+                cell_block.data[el_id] = vtu_element_nodes
 
     return copy_mesh_exo
 
@@ -371,8 +364,10 @@ def read_exodus(filename, use_set_names=False):  # noqa: C901
 
 
 def check_for_geometry_files(fourc_yaml: FourCInput) -> list:
-    """Checks the content of a fourc yaml file for referenced geometry files, e.g., contained within
-    STRUCTURE GEOMETRY / FILE. Returns the identified file, whereby we previously verify whether all given files are the same file (required by 4C currently).
+    """Checks the content of a fourc yaml file for referenced geometry files,
+    e.g., contained within STRUCTURE GEOMETRY / FILE. Returns the identified
+    file, whereby we previously verify whether all given files are the same
+    file (required by 4C currently).
 
     Args:
         fourc_yaml(FourCInput): content of the fourc yaml file to be verified.
@@ -431,8 +426,7 @@ class FourCGeometry:
                     filename=self._mesh_file,
                     use_set_names=False,
                 )
-                # self._mesh_exo =
-                # switch_node_order(mesh_exo=self._mesh_exo) #-> not
+                self._mesh_exo = switch_node_order(mesh_exo=self._mesh_exo)  # -> not
                 # yet, this will mess up the applied boundary
                 # conditions, because 4C uses another order format
 
@@ -489,14 +483,16 @@ class FourCGeometry:
         return np.where(self._dis.cell_data["GROUP_ID"] == element_block_id - 1)[0]
 
     def get_all_nodes_in_element_block_exo(self, element_block_id: int):
-        """Retrieve all unique node indices in a specified element block for Exodus geometry.
+        """Retrieve all unique node indices in a specified element block for
+        Exodus geometry.
+
         Args:
             element_block_id (int): id of the element block to retrieve the nodes from
         Returns:
             ndarray: array of node indices within the specified element block.
         """
 
-        # get cummulative element counts for each block
+        # get cumulative element counts for each block
         cum_el_counts = np.cumsum([len(cs) for cs in self._mesh_exo.cells])
 
         # get all element ids in the considered cell set
@@ -521,6 +517,8 @@ class FourCGeometry:
         return np.unique(all_node_ids)
 
     def enhance_exo_dis_with_fourc_yaml_info(self):
+        """Enhance contained Discretization with further information from the
+        fourc yaml file -> read in nodesets, and material data."""
 
         # --> read in nodeset info (pointnodesets, linenodesets, surfacenodesets, volumenodesets) based on the design sections specified in the yaml file
         # get all design sections
@@ -675,7 +673,9 @@ class FourCGeometry:
         )
 
     def prepare_dis_for_vtu_output(self):
-        """Prepares discretization for vtu conversion by adding data contained within the yaml file (e.g. material id, design conditions) as nodal or element data."""
+        """Prepares discretization for vtu conversion by adding data contained
+        within the yaml file (e.g. material id, design conditions) as nodal or
+        element data."""
         self._dis.compute_ids(zero_based=False)
 
         # write node data
