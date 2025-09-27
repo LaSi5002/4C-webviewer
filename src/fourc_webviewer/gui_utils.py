@@ -282,36 +282,166 @@ def _functions_panel(server):
             with html.Div(
                 classes="d-flex align-center ga-3 mb-5 pl-5 w-full",
             ):
-                ### --> see fourc_webserver specification on which function visualizations are currently supported
-                html.Span("COMPONENT: ", classes="text-h6")
-                html.Span(
-                    v_text=(
-                        "funct_section[selected_funct][selected_funct_item]['COMPONENT']",
-                    ),
-                )
-            ## show function string
+                with html.Div(
+                    v_if=(
+                        "'COMPONENT' in funct_section[selected_funct][selected_funct_item]",
+                    )
+                ):
+                    ### --> see fourc_webserver specification on which function visualizations are currently supported
+                    html.Span("COMPONENT: ", classes="text-h6")
+                    html.Span(
+                        v_text=(
+                            "funct_section[selected_funct][selected_funct_item]['COMPONENT']",
+                        ),
+                    )
+            ## show function information
             with html.Div(
                 classes="d-flex align-center ga-3 mb-5 pl-5 w-full",
             ):
-                ### --> see fourc_webserver specification on which function visualizations are currently supported
-                html.Span("FUNCTION: ", classes="text-h6")
-                # view mode: text
-                html.Span(
-                    v_if=("edit_mode == all_edit_modes['view_mode']",),
-                    v_text=(
-                        "funct_section[selected_funct][selected_funct_item]['SYMBOLIC_FUNCTION_OF_SPACE_TIME']",
-                    ),
-                )
-                # edit mode: text field
-                vuetify.VTextField(
-                    v_model=(
-                        "funct_section[selected_funct][selected_funct_item]['SYMBOLIC_FUNCTION_OF_SPACE_TIME']",
-                    ),
-                    update_modelValue="flushState('funct_section')",
-                    v_if=("edit_mode == all_edit_modes['edit_mode']",),
-                    dense=True,
-                    hide_details=True,
-                )
+                # for function components: show the functional strings
+                with html.Div(
+                    v_if=(
+                        "'COMPONENT' in funct_section[selected_funct][selected_funct_item]",
+                    )
+                ):
+                    ### --> see fourc_webserver specification on which function visualizations are currently supported
+                    html.Span("FUNCTION: ", classes="text-h6")
+                    # view mode: text
+                    html.Span(
+                        v_if=("edit_mode == all_edit_modes['view_mode']",),
+                        v_text=(
+                            "funct_section[selected_funct][selected_funct_item]['SYMBOLIC_FUNCTION_OF_SPACE_TIME']",
+                        ),
+                    )
+                    # edit mode: text field
+                    vuetify.VTextField(
+                        v_model=(
+                            "funct_section[selected_funct][selected_funct_item]['SYMBOLIC_FUNCTION_OF_SPACE_TIME']",
+                        ),
+                        update_modelValue="flushState('funct_section')",
+                        v_if=("edit_mode == all_edit_modes['edit_mode']",),
+                        dense=True,
+                        hide_details=True,
+                        style="min-width: 200px; max-width: 400px;",  # control width
+                    )
+                # for variables: show type, times, and values
+                with html.Div(
+                    v_if=(
+                        "'VARIABLE' in funct_section[selected_funct][selected_funct_item]",
+                    )
+                ):
+                    ## -> type
+                    with html.Div():
+                        html.Span("TYPE: ", classes="text-h6")
+                        # view mode: text
+                        html.Span(
+                            v_if=("edit_mode == all_edit_modes['view_mode']",),
+                            v_text=(
+                                "funct_section[selected_funct][selected_funct_item]['TYPE']",
+                            ),
+                        )
+                        # edit mode: text field
+                        vuetify.VTextField(
+                            v_model=(
+                                "funct_section[selected_funct][selected_funct_item]['TYPE']",
+                            ),
+                            update_modelValue="flushState('funct_section')",
+                            v_if=("edit_mode == all_edit_modes['edit_mode']",),
+                            dense=True,
+                            hide_details=True,
+                        )
+
+                    ## -> times
+                    with html.Div():
+                        html.Span("TIMES: ", classes="text-h6")
+                        # view mode: text
+                        html.Span(
+                            v_if=("edit_mode == all_edit_modes['view_mode']",),
+                            v_text=(
+                                "funct_section[selected_funct][selected_funct_item]['TIMES']",
+                            ),
+                        )
+                        # edit mode: list of text fields
+                        with html.Div(
+                            v_if=("edit_mode == all_edit_modes['edit_mode']",),
+                        ):
+                            with html.Div(
+                                v_for="(time_instant, time_instant_index) in funct_section[selected_funct][selected_funct_item]['TIMES']",
+                                style="margin-bottom: 8px;",  # spacing between fields
+                            ):
+                                vuetify.VNumberInput(
+                                    precision=("funct_plot['input_precision']",),
+                                    v_model=(
+                                        "funct_section[selected_funct][selected_funct_item]['TIMES'][time_instant_index]",
+                                    ),
+                                    update_modelValue="flushState('funct_section')",
+                                    dense=True,
+                                    hide_details=True,
+                                    style="min-width: 200px; max-width: 400px;",  # control width
+                                )
+
+                    ## -> values / descriptions
+                    with html.Div(
+                        v_if=(
+                            "'VALUES' in funct_section[selected_funct][selected_funct_item]",
+                        )
+                    ):
+                        html.Span("VALUES: ", classes="text-h6")
+                        # view mode: text
+                        html.Span(
+                            v_if=("edit_mode == all_edit_modes['view_mode']",),
+                            v_text=(
+                                "funct_section[selected_funct][selected_funct_item]['VALUES']",
+                            ),
+                        )
+                        # edit mode: list of text fields
+                        with html.Div(
+                            v_if=("edit_mode == all_edit_modes['edit_mode']",),
+                        ):
+                            with html.Div(
+                                v_for="(val, val_index) in funct_section[selected_funct][selected_funct_item]['VALUES']",
+                                style="margin-bottom: 8px;",  # spacing between fields
+                            ):
+                                vuetify.VNumberInput(
+                                    precision=("funct_plot['input_precision']",),
+                                    v_model=(
+                                        "funct_section[selected_funct][selected_funct_item]['VALUES'][val_index]",
+                                    ),
+                                    update_modelValue="flushState('funct_section')",
+                                    dense=True,
+                                    hide_details=True,
+                                    style="min-width: 200px; max-width: 400px;",  # control width
+                                )
+
+                    with html.Div(
+                        v_if=(
+                            "'DESCRIPTION' in funct_section[selected_funct][selected_funct_item]",
+                        )
+                    ):
+                        html.Span("DESCRIPTION: ", classes="text-h6")
+                        # view mode: text
+                        html.Span(
+                            v_if=("edit_mode == all_edit_modes['view_mode']",),
+                            v_text=(
+                                "funct_section[selected_funct][selected_funct_item]['DESCRIPTION']",
+                            ),
+                        )
+                        # edit mode: list of text fields
+                        with html.Div(
+                            v_if=("edit_mode == all_edit_modes['edit_mode']",),
+                        ):
+                            with html.Div(
+                                v_for="(val, val_index) in funct_section[selected_funct][selected_funct_item]['DESCRIPTION']",
+                                style="margin-bottom: 8px;",  # spacing between fields
+                            ):
+                                vuetify.VTextField(
+                                    v_model="funct_section[selected_funct][selected_funct_item]['DESCRIPTION'][val_index]",
+                                    update_modelValue="flushState('funct_section')",
+                                    dense=True,
+                                    hide_details=True,
+                                    style="min-width: 200px; max-width: 400px;",  # control width
+                                )
+
             # next components: only in view mode
             with html.Div(
                 v_if=("edit_mode == all_edit_modes['view_mode']",),
@@ -410,7 +540,16 @@ def _functions_panel(server):
                         display_mode_bar="true",
                     )
                     server.controller.figure_update = figure.update
-                    server.controller.figure_update(function_plot_figure(server.state))
+                    if server.state.funct_section[
+                        server.state.selected_funct
+                    ][
+                        server.state.selected_funct_item
+                    ][
+                        "VISUALIZATION"
+                    ]:  # add this explicitly again here, to avoid prohibited server actions
+                        server.controller.figure_update(
+                            function_plot_figure(server.state)
+                        )
 
         # here we define the GUI output of the non-visualizable function components
         with html.Div(

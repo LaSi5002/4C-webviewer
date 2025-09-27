@@ -91,51 +91,6 @@ def write_fourc_yaml_file(fourc_yaml_content, new_fourc_yaml_file):
     return True
 
 
-def add_fourc_yaml_file_data_to_dis(dis):
-    """Adds further data contained within the yaml file (e.g. material id) to
-    the discretization from lnmmeshio."""
-    dis.compute_ids(zero_based=False)
-
-    # write node data
-    for n in dis.nodes:
-        # write node id
-        n.data["node-id"] = n.id
-        n.data["node-coords"] = n.coords
-
-        # write fibers
-        for name, f in n.fibers.items():
-            n.data["node-" + name] = f.fiber
-
-        # write dpoints
-        for dp in n.pointnodesets:
-            n.data["dpoint{0}".format(dp.id)] = 1.0
-
-        # write dlines
-        for dl in n.linenodesets:
-            n.data["dline{0}".format(dl.id)] = 1.0
-
-        # write dsurfs
-        for ds in n.surfacenodesets:
-            n.data["dsurf{0}".format(ds.id)] = 1.0
-
-        # write dvols
-        for dv in n.volumenodesets:
-            n.data["dvol{0}".format(dv.id)] = 1.0
-
-    # write element data
-    for elements in dis.elements.values():
-        for ele in elements:
-            ele.data["element-id"] = ele.id
-
-            # write mat
-            if "MAT" in ele.options:
-                ele.data["element-material"] = int(ele.options["MAT"])
-
-            # write fibers
-            for name, f in ele.fibers.items():
-                ele.data["element-" + name] = f.fiber
-
-
 def find_linked_materials(material_id, material_items):
     """Find materials linked with a material number / id recursively based on
     given material specifiers (parameters which refer to other materials). This
@@ -252,7 +207,6 @@ def get_main_and_clustered_section_names(sections_list):
 
             # add the clustered sections
             clustered_sections.append(clustered_sections_to_be_added)
-
         else:  # no
             # check if element already in main sections -> SHOULD NEVER HAPPEN
             if sections[0].split("/")[0] in main_sections:
@@ -398,3 +352,23 @@ def get_master_and_linked_material_indices(materials_section):
         "master_mat_indices": master_mat_indices,
         "linked_mat_indices": linked_mat_indices,
     }
+
+
+def get_variable_data_by_name_in_funct_item(
+    funct_section_item: dict, variable_name: str
+):
+    """Retrieves the entire dictionary for the variable called <variable_name>
+    from the specified function section item, e.g. FUNCT1.
+
+    Args:
+        funct_section_item (dict): specified function item as a
+            dictionary, adhereing to the structure utilized in the state
+            variable funct_section.
+        variable_name (str): name of the considered variable.
+    Returns:
+        dict: dictionary containing the information associated with the specified variable.
+    """
+    for k, v in funct_section_item.items():
+        if "VARIABLE" in v and v["NAME"] == variable_name:
+            return v
+    return {}

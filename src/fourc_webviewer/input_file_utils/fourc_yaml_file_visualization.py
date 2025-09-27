@@ -10,35 +10,20 @@ import numpy as np
 import plotly.express as px
 
 from fourc_webviewer.input_file_utils.io_utils import (
-    add_fourc_yaml_file_data_to_dis,
+    get_variable_data_by_name_in_funct_item,
 )
 
+# functional expressions / constants known by 4C, that are replaced by the numpy counterpart during evaluation
+DEF_FUNCT = ["exp", "sqrt", "log", "sin", "cos", "tan", "heaviside", "pi"]
 
-def convert_to_vtu(fourc_yaml_file_path, temp_dir):
-    """Convert fourc yaml file to vtu.
 
-    Args:
-        fourc_yaml_file_path (str, Path): Path to input file
-        temp_dir (str, Path): Temp directory
-
-    Returns:
-        str: Path to vtu file
-    """
-    # define the vtu_file_path to have the same name as the input file, but the its directory is in './temp_files'
-    vtu_file_path = str(Path(temp_dir) / f"{Path(fourc_yaml_file_path).stem}.vtu")
-
-    # convert yaml file to vtu file and return the path to the vtu file
-    try:
-        dis = lnmmeshio.read(str(fourc_yaml_file_path))
-
-        to_vtu(dis, vtu_file_path)
-    except Exception as exc:  # if file conversion not successful
-        print(
-            exc
-        )  # currently, we throw the lnmmeshio conversion error as terminal output
-        vtu_file_path = ""
-
-    return vtu_file_path
+def get_variable_names_in_funct_expression(funct_expression: str):
+    """Returns all variable names present in a functional expression, using
+    regular expressions."""
+    vars_found = re.findall(r"[A-Za-z_]+", funct_expression)
+    return [
+        v for v in vars_found if v not in DEF_FUNCT and v not in ["t", "x", "y", "z"]
+    ]
 
 
 def function_plot_figure(state_data):
@@ -61,18 +46,48 @@ def function_plot_figure(state_data):
     # check if the function is None type (can happen temporarily while
     # changing the values): then write 0 instead of it for the figure
     # plot
-    function_copy = copy.deepcopy(
-        state_data.funct_section[state_data.selected_funct][
+    if (
+        "COMPONENT"
+        in state_data.funct_section[state_data.selected_funct][
             state_data.selected_funct_item
-        ]["SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
-    )
+        ]
+    ):
+        function_copy = copy.deepcopy(
+            state_data.funct_section[state_data.selected_funct][
+                state_data.selected_funct_item
+            ]["SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
+        )
+    elif (
+        "VARIABLE"
+        in state_data.funct_section[state_data.selected_funct][
+            state_data.selected_funct_item
+        ]
+    ):
+        function_copy = construct_funct_string_from_variable_data(
+            variable_name=state_data.funct_section[state_data.selected_funct][
+                state_data.selected_funct_item
+            ]["NAME"],
+            funct_section_item=state_data.funct_section[state_data.selected_funct],
+        )
     if not function_copy:
         function_copy = "0.0"
+
+    # construct function strings for the variables to replace them into
+    # the function later on
+    variable_funct_strings = {
+        k: construct_funct_string_from_variable_data(
+            variable_name=k,
+            funct_section_item=state_data.funct_section[state_data.selected_funct],
+        )
+        for k in get_variable_names_in_funct_expression(funct_expression=function_copy)
+    }
 
     num_of_time_points = 1000  # number of discrete time points used for plotting
     data = {
         "t": np.linspace(0, state_data.funct_plot["max_time"], num_of_time_points),
-        "f(t)": return_function_from_funct_string(function_copy)(
+        "f(t)": return_function_from_funct_string(
+            funct_string=function_copy, variable_funct_strings=variable_funct_strings
+        )(
             np.full((num_of_time_points,), state_data.funct_plot["x_val"]),
             np.full((num_of_time_points,), state_data.funct_plot["y_val"]),
             np.full((num_of_time_points,), state_data.funct_plot["z_val"]),
@@ -120,11 +135,13 @@ def function_plot_figure(state_data):
     return fig
 
 
-def return_function_from_funct_string(funct_string):
+def return_function_from_funct_string(funct_string: str, variable_funct_strings: dict):
     """Create function from funct string.
 
     Args:
         funct_string (str): Funct definition
+        variable_funct_strings (dict): Funct definitions of the variables
+            involved in funct_string to be replaced in the expression
 
     Returns:
         callable: callable function of x, y, z, t
@@ -143,56 +160,107 @@ def return_function_from_funct_string(funct_string):
         Returns:
             parsed object using ast.literal_eval
         """
-        # defined functions to be replaced: <def_funct> becomes <np.funct>
-        def_funct = ["exp", "sqrt", "log", "sin", "cos", "tan", "heaviside"]
+        # Create a safe environment
+        safe_dict = {
+            "x": x,
+            "y": y,
+            "z": z,
+            "t": t,
+            "sin": np.sin,
+            "cos": np.cos,
+            "exp": np.exp,
+            "log": np.log,
+            "sqrt": np.sqrt,
+            "where": np.where,
+            "pi": np.pi,
+            # "heaviside": np.heaviside, -> no heaviside, numexpr will
+            # not deal with this
+            # add other safe functions as needed
+        }
 
-        # funct_string copy
         funct_string_copy = funct_string
 
-        # replace the defined functions in the funct_string with "np.<def_funct>"
-        for i in range(len(def_funct)):
-            funct_string_copy = funct_string_copy.replace(
-                def_funct[i], f"np.{def_funct[i]}"
+        # replace variables by their
+        for k, v in variable_funct_strings.items():
+            funct_string_copy = re.sub(
+                rf"(?<![A-Za-z]){k}(?![A-Za-z])", v, funct_string_copy
             )
 
-        # replace pi as well
-        funct_string_copy = funct_string_copy.replace("pi", "np.pi")
-
-        # replace the used power sign
+        # replace heaviside functions with where / np.where
         funct_string_copy = funct_string_copy.replace("^", "**")
-
-        # replace variables
-        funct_string_copy = (
-            funct_string_copy.replace("x", str(x))
-            .replace("y", str(y))
-            .replace("z", str(z))
-            .replace("t", str(t))
+        funct_string_copy = re.sub(
+            r"heaviside\(([^),]+)\)", r"where(\1 >= 0, 1, 0)", funct_string_copy
+        )
+        funct_string_copy = re.sub(
+            r"heaviside\(([^),]+),\s*([^)]+)\)",
+            r"where(\1 > 0, 1, where(\1 == 0, \2, 0))",
+            funct_string_copy,
         )
 
-        # for heaviside: np.heaviside takes two arguments -> second argument denotes the function value at the first argument -> we set it by default to 0
-        funct_string_copy = re.sub(
-            r"heaviside\((.*?)\)", r"heaviside(\1,0)", funct_string_copy
-        )  # usage of raw strings, (.*?) is a non greedy capturing, and \1 replaces the captured value
-
-        return ne.evaluate(funct_string_copy)  # this parses string in as a function
+        # Numexpr evaluation (much safer)
+        return ne.evaluate(funct_string_copy, local_dict=safe_dict)
 
     return np.frompyfunc(funct_using_eval, 4, 1)
 
 
-def to_vtu(dis, vtu_file: str, override=True):
-    """Discretization to vtu.
+def construct_funct_string_from_variable_data(
+    variable_name: str, funct_section_item: dict
+):
+    """Constructs a functional string from the given data for a function
+    variable."""
 
-    Args:
-        dis (lnmmeshio.Discretization): Discretization object
-        vtu_file (str): Path to vtu file
-        override (bool, optional): Overwrite existing file. Defaults to True
-    """
-    add_fourc_yaml_file_data_to_dis(dis)
-
-    # write case file
-    lnmmeshio.write(
-        vtu_file,
-        dis,
-        file_format="vtu",
-        override=override,
+    # retrieve variable data
+    variable_data = get_variable_data_by_name_in_funct_item(
+        variable_name=variable_name, funct_section_item=funct_section_item
     )
+
+    # construct functional expression string for supported types
+    funct_string = ""
+    match variable_data["TYPE"]:
+        case "linearinterpolation":
+            # get times and values
+            times, values = (
+                np.array(variable_data["TIMES"]),
+                np.array(variable_data["VALUES"]),
+            )
+
+            # consistency check: time should start with 0.0
+            if float(times[0]) != 0.0:
+                raise Exception("Time should start with 0 in the TIMES section")
+            # loop through time instants and the functional expressions,
+            # using heaviside functions to differentiate between time intervals
+            funct_string = "("
+            for time_instant_index, time_instant in enumerate(times[:-1]):
+                if time_instant_index != 0:
+                    funct_string += "+"
+
+                funct_string += f"({values[time_instant_index]}+({values[time_instant_index + 1]}-{values[time_instant_index]})/({times[time_instant_index + 1]}-{time_instant})*(t-{time_instant}))*heaviside(t-{time_instant})*heaviside({times[time_instant_index + 1]}-t)"
+
+            funct_string += ")"
+
+        case "multifunction":
+            # get times and values
+            times, descriptions = (
+                np.array(variable_data["TIMES"]),
+                variable_data["DESCRIPTION"],
+            )
+
+            # consistency check: time should start with 0.0
+            if float(times[0]) != 0.0:
+                raise Exception("Time should start with 0 in the TIMES section")
+            # loop through time instants and the functional expressions,
+            # using heaviside functions to differentiate between time intervals
+            funct_string = "("
+            for time_instant_index, time_instant in enumerate(times[:-1]):
+                if time_instant_index != 0:
+                    funct_string += "+"
+
+                funct_string += f"({descriptions[time_instant_index]}*heaviside(t-{time_instant})*heaviside({times[time_instant_index + 1]}-t))"
+
+            funct_string += ")"
+
+        case _:
+            # warning that this variable type is not yet supported for visualization
+            print(f"Variable with {variable_data} not supported for visualization!")
+
+    return funct_string
