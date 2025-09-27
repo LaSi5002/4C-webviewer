@@ -30,6 +30,7 @@ from fourc_webviewer.input_file_utils.io_utils import (
 from fourc_webviewer.python_utils import (
     convert_string2number,
     dict_leaves_to_number_if_schema,
+    dict_number_leaves_to_string,
     find_value_recursively,
     parse_validation_error_text,
     smart_string2number_cast,
@@ -354,6 +355,7 @@ class FourCWebServer:
                     self.state.general_sections[main_section_name][section_name] = (
                         section_data
                     )
+        dict_number_leaves_to_string(self.state.general_sections)
 
     def sync_general_sections_from_state(self):
         """Syncs the server-side general sections based on the current values

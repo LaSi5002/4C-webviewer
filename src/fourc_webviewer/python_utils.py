@@ -2,6 +2,7 @@
 
 import re
 
+import numpy
 from fourcipp import CONFIG
 
 
@@ -72,9 +73,20 @@ def dict_leaves_to_number_if_schema(value, schema_path=[]):
             )
         return value
     if isinstance(value, str) and get_by_path(
-        CONFIG["json_schema"], schema_path + ["type"]
+        CONFIG.fourc_json_schema, schema_path + ["type"]
     ) in ["number", "integer"]:
         return smart_string2number_cast(value)
+    return value
+
+
+def dict_number_leaves_to_string(value):
+    """Convert all leaves of a dict to numbers if possible."""
+    if isinstance(value, dict):
+        for k, v in value.items():
+            value[k] = dict_number_leaves_to_string(v)
+        return value
+    if isinstance(value, int) or isinstance(value, float):
+        return str(value)
     return value
 
 
