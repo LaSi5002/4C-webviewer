@@ -1102,6 +1102,14 @@ class FourCWebServer:
 
     """------------------- Controller functions -------------------"""
 
+    @controller.set("delete_row")
+    def delete_row(self, item_key, **kwargs):
+        """Deletes a row from the table."""
+        del self.state.general_sections[self.state.selected_main_section_name][
+            self.state.selected_section_name
+        ][item_key]
+        self.init_general_sections_state_and_server_vars()
+
     @controller.set("click_info_button")
     def click_info_button(self, **kwargs):
         """Toggles the info mode, which displays a bottom sheet containing file
