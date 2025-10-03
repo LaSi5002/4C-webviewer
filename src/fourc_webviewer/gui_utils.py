@@ -576,7 +576,7 @@ def _functions_panel(server):
             )
 
 
-def _prop_value_table(server_controller):
+def _prop_value_table():
     """Table (property - value) layout (for general sections)."""
     with vuetify.VTable(
         v_if=(
@@ -604,27 +604,10 @@ def _prop_value_table(server_controller):
                 ),
                 key="item_key",
             ):
-                with html.Td(classes="text-center pa-0", style="position: relative;"):
-                    with vuetify.VBtn(
-                        v_if="edit_mode == all_edit_modes['edit_mode']",
-                        tag="a",
-                        v_bind="{...props, target: '_blank'}",
-                        v_tooltip="Delete this property",
-                        click=(server_controller.delete_row, "[item_key]"),
-                        icon=True,
-                        ripple=False,
-                        elevation="0",
-                        style="position:absolute; left:6px; top:50%; transform:translateY(-50%); "
-                        "min-width:0; padding:0;",
-                    ):
-                        vuetify.VIcon(
-                            "mdi-trash-can-outline",  # "mdi-trash-can-outline",#"mdi-book-open-blank-variant-outline",
-                            size=26,
-                            color="#f77",
-                        )
+                with html.Td(classes="text-center"):
                     with vuetify.VTooltip(location="bottom"):
                         with html.Template(v_slot_activator="{ props }"):
-                            html.Span(v_text=("item_key",), v_bind="props")
+                            html.P(v_text=("item_key",), v_bind="props")
                         html.P(
                             v_text=(
                                 "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",
@@ -1276,7 +1259,7 @@ def create_gui(server, render_window):
 
                 # Further elements with conditional rendering (see above)
                 _sections_dropdown()
-                _prop_value_table(server.controller)
+                _prop_value_table()
                 _materials_panel()
                 _functions_panel(server)
                 _design_conditions_panel()
