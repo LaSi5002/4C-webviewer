@@ -35,6 +35,7 @@ from fourc_webviewer.python_utils import (
     find_value_recursively,
     parse_validation_error_text,
     smart_string2number_cast,
+)
 from fourc_webviewer.read_geometry_from_file import (
     FourCGeometry,
 )
@@ -367,7 +368,6 @@ class FourCWebServer:
                     self.state.general_sections[main_section_name][section_name] = (
                         section_data
                     )
-        dict_number_leaves_to_string(self.state.general_sections)
 
     def sync_general_sections_from_state(self):
         """Syncs the server-side general sections based on the current values
