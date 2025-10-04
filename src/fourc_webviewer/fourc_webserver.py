@@ -34,7 +34,7 @@ from fourc_webviewer.python_utils import (
     dict_number_leaves_to_string,
     find_value_recursively,
     parse_validation_error_text,
-    smart_string2number_cast,
+    smart_string2number_cast)
 from fourc_webviewer.read_geometry_from_file import (
     FourCGeometry,
 )
