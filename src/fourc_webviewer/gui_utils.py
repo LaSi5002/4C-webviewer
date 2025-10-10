@@ -609,7 +609,6 @@ def _prop_value_table(server):
                         v_if="edit_mode == all_edit_modes['edit_mode'] && !json_schema['properties']?.[selected_section_name]?.['required']?.includes(item_key)",
                         tag="a",
                         v_bind="{...props, target: '_blank'}",
-                        v_tooltip="Delete this property",
                         click=(server.controller.delete_row, "[item_key]"),
                         icon=True,
                         ripple=False,
@@ -656,7 +655,6 @@ def _prop_value_table(server):
                     with vuetify.VBtn(
                         tag="a",
                         v_bind="{...props, target: '_blank'}",
-                        v_tooltip="Add this property",
                         click=(server.controller.add_row),
                         icon=True,
                         ripple=False,
@@ -669,38 +667,18 @@ def _prop_value_table(server):
                             size=26,
                             color="#4a4",
                         )
-                    item_error = "wada"
-                    (
-                        vuetify.VAutocomplete(
-                            v_model=("add_key",),
-                            update_modelValue="flushState('general_sections')",
-                            # bind the enum array as items
-                            items=(
-                                "Object.keys(json_schema['properties']?.[selected_section_name]?.['properties'])",
-                            ),
-                            dense=True,
-                            solo=True,
-                            filterable=True,
-                            classes="pb-1 ml-16",
-                            color=f"{item_error} && error",
-                            bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
-                            error_messages=(
-                                f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
-                            ),
+                    vuetify.VAutocomplete(
+                        v_model=("add_key",),
+                        update_modelValue="flushState('general_sections')",
+                        # bind the enum array as items
+                        items=(
+                            "Object.keys(json_schema['properties']?.[selected_section_name]?.['properties'])",
                         ),
+                        dense=True,
+                        solo=True,
+                        filterable=True,
+                        classes="pb-1 ml-16",
                     )
-                    with vuetify.VTooltip(location="bottom"):
-                        with html.Template(v_slot_activator="{ props }"):
-                            html.Span(v_text=("item_key",), v_bind="props")
-                        html.P(
-                            v_text=(
-                                "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",
-                            ),
-                            v_if=(
-                                "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description']",
-                            ),
-                            style="max-width: 450px;",
-                        )
                 html.Td(
                     v_if="edit_mode == all_edit_modes['view_mode']",
                     v_text=("item_val",),

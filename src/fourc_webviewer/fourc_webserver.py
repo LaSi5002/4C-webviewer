@@ -1110,15 +1110,22 @@ class FourCWebServer:
         del self.state.general_sections[self.state.selected_main_section_name][
             self.state.selected_section_name
         ][item_key]
-        self.init_general_sections_state_and_server_vars()
+        self.state.dirty("general_sections")
+        self.state.flush()
 
     @controller.set("add_row")
     def add_row(self, **kwargs):
         """Adds a row to the table."""
-        self.state.general_sections[self.state.selected_main_section_name][
-            self.state.selected_section_name
-        ][self.state.add_key] = self.state.add_value
-        self.init_general_sections_state_and_server_vars()
+        if self.state.add_key:
+            general_sections = dict(self.state.general_sections or {})
+            general_sections[self.state.selected_main_section_name][
+                self.state.selected_section_name
+            ][self.state.add_key] = self.state.add_value
+            self.state.general_sections = general_sections
+        self.state.add_key = ""
+        self.state.add_value = ""
+        self.state.dirty("general_sections")
+        self.state.flush()
 
     @controller.set("click_info_button")
     def click_info_button(self, **kwargs):
