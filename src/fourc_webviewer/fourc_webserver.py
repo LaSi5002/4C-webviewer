@@ -338,6 +338,8 @@ class FourCWebServer:
 
         # loop through input file sections
         self.state.general_sections = {}
+        self.state.add_key = ""  # key for the add property row
+        self.state.add_value = ""  # value for the add property row
         for section_name, section_data in self._server_vars[
             "fourc_yaml_content"
         ].sections.items():
@@ -1119,6 +1121,29 @@ class FourCWebServer:
         self.convert_string2num_all_sections()
 
     """------------------- Controller functions -------------------"""
+
+    @controller.set("delete_row")
+    def delete_row(self, item_key, **kwargs):
+        """Deletes a row from the table."""
+        del self.state.general_sections[self.state.selected_main_section_name][
+            self.state.selected_section_name
+        ][item_key]
+        self.state.dirty("general_sections")
+        self.state.flush()
+
+    @controller.set("add_row")
+    def add_row(self, **kwargs):
+        """Adds a row to the table."""
+        if self.state.add_key:
+            general_sections = dict(self.state.general_sections or {})
+            general_sections[self.state.selected_main_section_name][
+                self.state.selected_section_name
+            ][self.state.add_key] = self.state.add_value
+            self.state.general_sections = general_sections
+        self.state.add_key = ""
+        self.state.add_value = ""
+        self.state.dirty("general_sections")
+        self.state.flush()
 
     @controller.set("click_info_button")
     def click_info_button(self, **kwargs):
