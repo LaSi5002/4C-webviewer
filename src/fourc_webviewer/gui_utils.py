@@ -576,8 +576,9 @@ def _functions_panel(server):
             )
 
 
-def _prop_value_table():
+def _prop_value_table(server):
     """Table (property - value) layout (for general sections)."""
+
     with vuetify.VTable(
         v_if=(
             "section_names[selected_main_section_name]['content_mode'] == all_content_modes['general_section']",
@@ -604,16 +605,29 @@ def _prop_value_table():
                 ),
                 key="item_key",
             ):
-                with html.Td(classes="text-center"):
+                with html.Td(classes="text-center pa-0", style="position: relative;"):
+                    with vuetify.VBtn(
+                        v_if="edit_mode == all_edit_modes['edit_mode'] && !json_schema['properties']?.[selected_section_name]?.['required']?.includes(item_key)",
+                        tag="a",
+                        v_bind="{...props, target: '_blank'}",
+                        click=(server.controller.delete_row, "[item_key]"),
+                        icon=True,
+                        ripple=False,
+                        elevation="0",
+                        style="position:absolute; left:6px; top:50%; transform:translateY(-50%); "
+                        "min-width:0; padding:0;",
+                    ):
+                        vuetify.VIcon(
+                            "mdi-trash-can-outline",
+                            size=26,
+                            color="#f77",
+                        )
                     with vuetify.VTooltip(location="bottom"):
                         with html.Template(v_slot_activator="{ props }"):
-                            html.P(v_text=("item_key",), v_bind="props")
+                            html.Span(v_text=("item_key",), v_bind="props")
                         html.P(
                             v_text=(
                                 "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description'] || 'no description'",
-                            ),
-                            v_if=(
-                                "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['description']",
                             ),
                             style="max-width: 450px;",
                         )
@@ -626,14 +640,168 @@ def _prop_value_table():
                     v_if="edit_mode == all_edit_modes['edit_mode']",
                     classes="text-center w-50",
                 ):
+                    item_error = "input_error_dict[selected_main_section_name]?.[item_key] || input_error_dict[selected_main_section_name + '~1' + selected_subsection_name]?.[item_key]"
+                    # if item is a string, number or integer -> use VTextField
                     vuetify.VTextField(
                         v_model=(
                             "general_sections[selected_main_section_name][selected_section_name][item_key]",  # binding item_val directly does not work, since Object.entries(...) creates copies for the mutable objects
                         ),
+                        v_if=(
+                            "(json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'string' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'number' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] == 'integer')"
+                            "&& !json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['enum']"
+                        ),
+                        blur=server.controller.on_leave_edit_field,
                         update_modelValue="flushState('general_sections')",  # this is required in order to flush the state changes correctly to the server, as our passed on v-model is a nested variable
-                        classes="w-80",
+                        classes="w-80 pb-1",
                         dense=True,
-                        hide_details=True,
+                        color=f"{item_error} && error",
+                        bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
+                        error_messages=(
+                            f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                        ),
+                    )
+                    # if item is a boolean -> use VSwitch
+                    with html.Div(
+                        v_if=(
+                            "json_schema['properties']?.[selected_section_name]?.['properties']?.[item_key]?.['type'] === 'boolean'"
+                        ),
+                        classes="d-flex align-center justify-center",
+                    ):
+                        vuetify.VSwitch(
+                            v_model=(
+                                "general_sections[selected_main_section_name][selected_section_name][item_key]"
+                            ),
+                            classes="mt-4",
+                            update_modelValue="flushState('general_sections')",
+                            class_="mx-100",
+                            dense=True,
+                            color="primary",
+                        )
+                    # if item is an enum -> use VAutocomplete
+                    (
+                        vuetify.VAutocomplete(
+                            v_model=(
+                                "general_sections[selected_main_section_name]"
+                                "[selected_section_name][item_key]"
+                            ),
+                            v_if=(
+                                "json_schema['properties']?.[selected_section_name]"
+                                "?.['properties']?.[item_key]?.['enum']"
+                            ),
+                            update_modelValue="flushState('general_sections')",
+                            # bind the enum array as items
+                            items=(
+                                "json_schema['properties'][selected_section_name]['properties'][item_key]['enum']",
+                            ),
+                            dense=True,
+                            solo=True,
+                            filterable=True,
+                            classes="w-80 pb-1",
+                            color=f"{item_error} && error",
+                            bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
+                            error_messages=(
+                                f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                            ),
+                        ),
+                    )
+            with html.Tr(
+                v_if=("edit_mode == all_edit_modes['edit_mode']",),
+            ):
+                with html.Td(classes="text-center pa-0", style="position: relative;"):
+                    with vuetify.VBtn(
+                        tag="a",
+                        v_bind="{...props, target: '_blank'}",
+                        click=(server.controller.add_row),
+                        icon=True,
+                        ripple=False,
+                        elevation="0",
+                        style="position:absolute; left:6px; top:50%; transform:translateY(-50%); "
+                        "min-width:0; padding:0;",
+                    ):
+                        vuetify.VIcon(
+                            "mdi-plus",
+                            size=26,
+                            color="#4a4",
+                        )
+                    vuetify.VAutocomplete(
+                        v_model=("add_key",),
+                        update_modelValue="flushState('general_sections')",
+                        # bind the enum array as items
+                        items=(
+                            "Object.keys(json_schema['properties']?.[selected_section_name]?.['properties'])",
+                        ),
+                        dense=True,
+                        solo=True,
+                        filterable=True,
+                        classes="pb-1 ml-16",
+                    )
+                html.Td(
+                    v_if="edit_mode == all_edit_modes['view_mode']",
+                    v_text=("item_val",),
+                    classes="text-center w-50",
+                )
+                with html.Td(
+                    v_if="edit_mode == all_edit_modes['edit_mode']",
+                    classes="text-center w-50",
+                ):
+                    vuetify.VTextField(
+                        v_model=("add_value",),
+                        v_if=(
+                            "(json_schema['properties']?.[selected_section_name]?.['properties']?.[add_key]?.['type'] == 'string' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[add_key]?.['type'] == 'number' "
+                            "|| json_schema['properties']?.[selected_section_name]?.['properties']?.[add_key]?.['type'] == 'integer')"
+                            "&& !json_schema['properties']?.[selected_section_name]?.['properties']?.[add_key]?.['enum']"
+                        ),
+                        blur=server.controller.on_leave_edit_field,
+                        update_modelValue="flushState('general_sections')",  # this is required in order to flush the state changes correctly to the server, as our passed on v-model is a nested variable
+                        classes="w-80 pb-1",
+                        dense=True,
+                        # If we will add errors for this later
+                        # color=f"{item_error} && error",
+                        # bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
+                        # error_messages=(
+                        #     f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                        # ),
+                    )
+                    # if item is a boolean -> use VSwitch
+                    with html.Div(
+                        v_if=(
+                            "json_schema['properties']?.[selected_section_name]?.['properties']?.[add_key]?.['type'] === 'boolean'"
+                        ),
+                        classes="d-flex align-center justify-center",
+                    ):
+                        vuetify.VSwitch(
+                            v_model=("add_value"),
+                            classes="mt-4",
+                            update_modelValue="flushState('general_sections')",
+                            class_="mx-100",
+                            dense=True,
+                            color="primary",
+                        )
+                    (
+                        vuetify.VAutocomplete(
+                            v_model=("add_value"),
+                            v_if=(
+                                "json_schema['properties']?.[selected_section_name]"
+                                "?.['properties']?.[add_key]?.['enum']"
+                            ),
+                            update_modelValue="flushState('general_sections')",
+                            # bind the enum array as items
+                            items=(
+                                "json_schema['properties'][selected_section_name]['properties'][add_key]['enum']",
+                            ),
+                            dense=True,
+                            solo=True,
+                            filterable=True,
+                            classes="w-80 pb-1",
+                            # color=f"{item_error} && error",
+                            # bg_color=(f"{item_error} ? 'rgba(255, 0, 0, 0.2)' : ''",),
+                            # error_messages=(
+                            #     f"{item_error}?.length > 100 ? {item_error}?.slice(0, 97)+' ...' : {item_error}",
+                            # ),
+                        ),
                     )
 
 
@@ -1259,7 +1427,7 @@ def create_gui(server, render_window):
 
                 # Further elements with conditional rendering (see above)
                 _sections_dropdown()
-                _prop_value_table()
+                _prop_value_table(server)
                 _materials_panel()
                 _functions_panel(server)
                 _design_conditions_panel()

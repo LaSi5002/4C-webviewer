@@ -9,12 +9,12 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
+import yaml
 from fourcipp import CONFIG
-from fourcipp.fourc_input import FourCInput
+from fourcipp.fourc_input import FourCInput, ValidationError
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
-import fourc_webviewer.pyvista_render as pv_render
 from fourc_webviewer.gui_utils import create_gui
 from fourc_webviewer.input_file_utils.fourc_yaml_file_visualization import (
     function_plot_figure,
@@ -27,10 +27,21 @@ from fourc_webviewer.input_file_utils.io_utils import (
     read_fourc_yaml_file,
     write_fourc_yaml_file,
 )
-from fourc_webviewer.python_utils import convert_string2number, find_value_recursively
+from fourc_webviewer.python_utils import (
+    convert_string2number,
+    dict_leaves_to_number_if_schema,
+    dict_number_leaves_to_string,
+    find_value_recursively,
+    parse_validation_error_text,
+    smart_string2number_cast,
+)
 from fourc_webviewer.read_geometry_from_file import (
     FourCGeometry,
 )
+
+# Global variable
+# factor which scales the spheres used to represent nodal design conditions and result descriptions with respect to the problem length scale
+PV_SPHERE_FRAC_SCALE = 1.0 / 45.0
 
 # always set pyvista to plot off screen with Trame
 pv.OFF_SCREEN = True
@@ -72,6 +83,9 @@ class FourCWebServer:
 
         # create temporary directory
         self._server_vars["temp_dir_object"] = tempfile.TemporaryDirectory()
+
+        # Register on_field_blur function, which is called when the user leaves a field
+        self.server.controller.on_leave_edit_field = self.on_leave_edit_field
 
         # initialize state variables for the different modes and
         # statuses of the client (e.g. view mode versus edit mode,
@@ -117,8 +131,7 @@ class FourCWebServer:
             self.state.read_in_status = self.state.all_read_in_statuses[
                 "vtu_conversion_error"
             ]
-
-        self.update_pyvista_render_objects(init_rendering=True)
+        self.init_pyvista_render_objects()
 
         # create ui
         create_gui(self.server, self._server_vars["render_window"])
@@ -140,7 +153,7 @@ class FourCWebServer:
         """Initialize state variables (reactive shared state) and server-side
         only variables, particularly the ones related to the fourc yaml
         content."""
-
+        self._actors = {}
         ### --- self.state VARIABLES FOR INPUT FILE CONTENT --- ###
         # name of the 4C yaml file
         self.state.fourc_yaml_name = self._server_vars["fourc_yaml_name"]
@@ -158,6 +171,9 @@ class FourCWebServer:
             Path(self._server_vars["temp_dir_object"].name)
             / f"new_{self.state.fourc_yaml_file['name']}"
         )
+        # dict to store input errors for the input validation
+        # imitates structure of self.state.general_sections
+        self.state.input_error_dict = {}
 
         # get state variables of the general sections
         self.init_general_sections_state_and_server_vars()
@@ -228,61 +244,160 @@ class FourCWebServer:
         self.sync_result_description_section_from_state()
         self.sync_funct_section_from_state()
 
-    def update_pyvista_render_objects(self, init_rendering=False):
-        """Update/ initialize pyvista view objects (reader, thresholds, global
-        COS, ...) for the rendered window. The saved vtu file path is hereby
-        utilized.
+    def get_problem_length_scale(self, pv_mesh):
+        """Compute problem length scale from the bounds of the considered
+        pyvista mesh.
 
         Args:
-            init_rendering (bool): perform initialization tasks? (True:
-            yes | False: no -> only updating)
+            pv_mesh (pyvista.UnstructuredGrid): geometry mesh
+        Returns:
+            float: maximum coordinate bound difference in 3-dimensions
         """
 
-        # initialization tasks
-        if init_rendering:
-            # initialization: declare render window as a pyvista plotter
+        # get maximum bound difference as the problem length scale
+        return max(
+            pv_mesh.bounds[1] - pv_mesh.bounds[0],
+            pv_mesh.bounds[3] - pv_mesh.bounds[2],
+            pv_mesh.bounds[5] - pv_mesh.bounds[4],
+        )
+
+    def init_pyvista_render_objects(self):
+        """Initialize pyvista view objects (reader, thresholds, global COS,
+        ...) for the rendered window.
+
+        The saved vtu file path is hereby utilized.
+        """
+        if "render_window" not in self._actors:
             self._server_vars["render_window"] = pv.Plotter()
 
+        self._server_vars["render_window"].clear_actors()
+
+        problem_mesh = pv.read(self.state.vtu_path)
         # get problem mesh
-        self._server_vars["pv_mesh"] = pv.read(self.state.vtu_path)
+        self._actors["problem_mesh"] = self._server_vars["render_window"].add_mesh(
+            problem_mesh, color="bisque", opacity=0.2, render=False
+        )
 
         # get mesh of the selected material
-        master_mat_ind = self.determine_master_mat_ind_for_current_selection()
-        self._server_vars["pv_selected_material_mesh"] = self._server_vars[
-            "pv_mesh"
-        ].threshold(
-            value=(master_mat_ind - 0.05, master_mat_ind + 0.05),
-            scalars="element-material",
-        )
+        self._actors["material_meshes"] = {}
+        for material in self.state.materials_section.keys():
+            # get meshes of materials
+            master_mat_ind = self.determine_master_mat_ind_for_material(material)
+            self._actors["material_meshes"][material] = self._server_vars[
+                "render_window"
+            ].add_mesh(
+                problem_mesh.threshold(
+                    value=(master_mat_ind - 0.05, master_mat_ind + 0.05),
+                    scalars="element-material",
+                ),
+                color="darkorange",
+                opacity=0.7,
+                render=False,
+            )
 
-        # get nodes of the selected condition geometry + entity
-        self._server_vars["pv_selected_dc_geometry_entity"] = pv.PointSet(
-            self._server_vars["pv_mesh"]
-        ).threshold(
-            value=1.0,
-            scalars=f"d{self.state.selected_dc_geometry_type.lower()}{self.state.selected_dc_entity.replace('E', '')}",
-            preference="point",
-        )
+        all_dc_entities = [
+            {"entity": k, "geometry_type": sec_name}
+            for sec_name, sec in self.state.dc_sections.items()
+            for k in sec  # == sec.keys()
+        ]
+        self._actors["dc_geometry_entities"] = {}
+        # get nodes of the selected condition geometries + entities
+        for dc_entity in all_dc_entities:
+            points = problem_mesh.threshold(
+                value=1.0,
+                scalars=f"d{dc_entity['geometry_type'].lower()}{dc_entity['entity'].replace('E', '')}",
+                preference="point",
+            ).points
 
-        # get coords of node with prescribed result description
-        self._server_vars["pv_selected_result_description_node_coords"] = (
-            self._server_vars["pv_mesh"].points[
-                self.state.result_description_section[
-                    self.state.selected_result_description_id
-                ]["PARAMETERS"]["NODE"]
-                - 1,
+            if points.size:
+                pts = pv.PolyData(points)
+                r = (
+                    self.get_problem_length_scale(self._actors["problem_mesh"])
+                    * PV_SPHERE_FRAC_SCALE
+                )
+
+                sphere = pv.Sphere(radius=r, theta_resolution=5, phi_resolution=5)
+
+                glyphs = pts.glyph(
+                    geom=sphere, scale=False, orient=False
+                )  # in PolyData
+                self._actors["dc_geometry_entities"][
+                    (dc_entity["entity"], dc_entity["geometry_type"])
+                ] = self._server_vars["render_window"].add_mesh(
+                    glyphs,
+                    color="navy",
+                    opacity=1.0,
+                    render=False,
+                )
+
+        self._actors["result_description_nodes"] = {}
+        all_result_descriptions = self.state.result_description_section.keys()
+
+        for dc in all_result_descriptions:
+            node_coords = problem_mesh.points[
+                self.state.result_description_section[dc]["PARAMETERS"]["NODE"] - 1,
                 :,
             ]
-        )
+            self._actors["result_description_nodes"][dc] = self._server_vars[
+                "render_window"
+            ].add_mesh(
+                pv.Sphere(
+                    center=node_coords,
+                    radius=self.get_problem_length_scale(problem_mesh)
+                    * PV_SPHERE_FRAC_SCALE,
+                ),
+                color="deepskyblue",
+                render=False,
+            )
+        self.update_pyvista_render_objects()
 
-        # update plotter / rendering
-        pv_render.update_pv_plotter(
-            self._server_vars["render_window"],
-            self._server_vars["pv_mesh"],
-            self._server_vars["pv_selected_material_mesh"],
-            self._server_vars["pv_selected_dc_geometry_entity"],
-            self._server_vars["pv_selected_result_description_node_coords"],
-        )
+    def update_pyvista_render_objects(self):
+        """Update/ initialize pyvista view objects (reader, thresholds, global
+        COS, ...) for the rendered window.
+
+        The saved vtu file path is hereby utilized.
+        """
+        legend_items = []
+
+        for dc in self._actors["result_description_nodes"].values():
+            dc.SetVisibility(False)
+        if (
+            self.state.selected_main_section_name == "RESULT DESCRIPTION"
+            and self.state.selected_result_description_id
+            and self.state.selected_result_description_id
+            in self._actors["result_description_nodes"].keys()
+        ):
+            self._actors["result_description_nodes"][
+                self.state.selected_result_description_id
+            ].SetVisibility(True)
+            legend_items.append(("Selected result description", "deepskyblue"))
+
+        for rd in self._actors["dc_geometry_entities"].values():
+            rd.SetVisibility(False)
+        if (
+            self.state.selected_main_section_name == "DESIGN CONDITIONS"
+            and self.state.selected_dc_entity
+            and self.state.selected_dc_geometry_type
+        ):
+            self._actors["dc_geometry_entities"][
+                (self.state.selected_dc_entity, self.state.selected_dc_geometry_type)
+            ].SetVisibility(True)
+            legend_items.append(("Selected design condition", "navy"))
+
+        for mat in self._actors["material_meshes"].values():
+            mat.SetVisibility(False)
+        if (
+            self.state.selected_material
+            and self.state.selected_main_section_name == "MATERIALS"
+        ):
+            self._actors["material_meshes"][self.state.selected_material].SetVisibility(
+                True
+            )
+            legend_items.append(("Selected material", "orange"))
+
+        self._server_vars["render_window"].remove_legend()
+        if legend_items:
+            self._server_vars["render_window"].add_legend(labels=legend_items)
 
     def init_general_sections_state_and_server_vars(self):
         """Get the general sections and cluster them into subsections. For
@@ -324,6 +439,8 @@ class FourCWebServer:
 
         # loop through input file sections
         self.state.general_sections = {}
+        self.state.add_key = ""  # key for the add property row
+        self.state.add_value = ""  # value for the add property row
         for section_name, section_data in self._server_vars[
             "fourc_yaml_content"
         ].sections.items():
@@ -923,7 +1040,6 @@ class FourCWebServer:
             self._server_vars["fourc_yaml_last_modified"],
             self._server_vars["fourc_yaml_read_in_status"],
         ) = read_fourc_yaml_file(temp_fourc_yaml_file)
-
         self._server_vars["fourc_yaml_name"] = Path(temp_fourc_yaml_file).name
 
         # set vtu file path empty to make the convert button visible
@@ -950,6 +1066,14 @@ class FourCWebServer:
         self.state.selected_section_name = self.state.section_names[
             selected_main_section_name
         ]["subsections"][0]
+
+        # update plotter / render objects
+        self.update_pyvista_render_objects()
+
+    @change("selected_section_name")
+    def change_selected_section_name(self, selected_section_name, **kwargs):
+        """Reaction to change of state.selected_section_name."""
+        self.state.selected_subsection_name = selected_section_name.split("/")[-1]
 
     @change("selected_material")
     def change_selected_material(self, selected_material, **kwargs):
@@ -1102,6 +1226,29 @@ class FourCWebServer:
 
     """------------------- Controller functions -------------------"""
 
+    @controller.set("delete_row")
+    def delete_row(self, item_key, **kwargs):
+        """Deletes a row from the table."""
+        del self.state.general_sections[self.state.selected_main_section_name][
+            self.state.selected_section_name
+        ][item_key]
+        self.state.dirty("general_sections")
+        self.state.flush()
+
+    @controller.set("add_row")
+    def add_row(self, **kwargs):
+        """Adds a row to the table."""
+        if self.state.add_key:
+            general_sections = dict(self.state.general_sections or {})
+            general_sections[self.state.selected_main_section_name][
+                self.state.selected_section_name
+            ][self.state.add_key] = self.state.add_value
+            self.state.general_sections = general_sections
+        self.state.add_key = ""
+        self.state.add_value = ""
+        self.state.dirty("general_sections")
+        self.state.flush()
+
     @controller.set("click_info_button")
     def click_info_button(self, **kwargs):
         """Toggles the info mode, which displays a bottom sheet containing file
@@ -1148,7 +1295,7 @@ class FourCWebServer:
                 ]
             else:
                 # reset view
-                self.update_pyvista_render_objects()
+                self.init_pyvista_render_objects()
                 self._server_vars["render_window"].reset_camera()
                 self.ctrl.view_reset_camera()
                 self.ctrl.view_update()
@@ -1175,6 +1322,33 @@ class FourCWebServer:
         else:
             self.state.export_status = self.state.all_export_statuses["error"]
 
+    @change("general_sections")
+    def on_sections_change(self, general_sections, **kwargs):
+        """Reaction to change of state.general_sections."""
+
+        self.sync_server_vars_from_state()
+        try:
+            fourcinput = FourCInput(self._server_vars["fourc_yaml_content"])
+
+            dict_leaves_to_number_if_schema(fourcinput._sections)
+
+            fourcinput.validate()
+            self.state.input_error_dict = {}
+        except ValidationError as exc:
+            self.state.input_error_dict = parse_validation_error_text(
+                str(exc.args[0])
+            )  # exc.args[0] is the error message
+            return False
+
+    def on_leave_edit_field(self):
+        """Reaction to user leaving the field.
+
+        Currently only supported for the general sections.
+        """
+        # also gets called when a new file is loaded
+        # basically just sets the state based on server_vars
+        self.init_general_sections_state_and_server_vars()
+
     """ --- Other helper functions"""
 
     def convert_string2num_all_sections(self):
@@ -1189,21 +1363,20 @@ class FourCWebServer:
             self.state.result_description_section
         )
 
-    def determine_master_mat_ind_for_current_selection(self):
-        """Determines the real master/source material of the currently selected
-        material. Accounts for CLONING MATERIAL MAP by going one step further
-        and checking for the real source material recursively (important in
-        multi-field problem settings, e.g., in SSTI, the procedure finds the
-        structural material).
+    def determine_master_mat_ind_for_material(self, material):
+        """Determines the real master/source material of a material. Accounts
+        for CLONING MATERIAL MAP by going one step further and checking for the
+        real source material recursively (important in multi-field problem
+        settings, e.g., in SSTI, the procedure finds the structural material).
 
         Returns:
             int: id of the real master material of the currently
                 selected material.
         """
         # get id of the master material
-        master_mat_id = self.state.materials_section[self.state.selected_material][
-            "RELATIONSHIPS"
-        ]["MASTER MATERIAL"]
+        master_mat_id = self.state.materials_section[material]["RELATIONSHIPS"][
+            "MASTER MATERIAL"
+        ]
 
         # it could now be that the master material is a TARGET material
         # during cloning material map (and its master might be also a
