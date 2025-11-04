@@ -68,6 +68,11 @@ class FourCWebServer:
 
         self.server = get_server()
 
+        # initialize include upload value: False (bottom sheet with include upload is not displayed until there is a fourcyaml file uploaded)
+        self.state.include_upload_open = True
+        self.state.included_files = []
+        self.state.uploaded_file = [None for _ in range(6)]
+
         # declare server-side variable dict: variables which should not
         # be exposed to the client-side
         self._server_vars = {}
@@ -954,6 +959,19 @@ class FourCWebServer:
             6  # precision for the user input of the values defined above: x, y, z and t_max
         )
 
+    def request_included_files(self):
+        """Requests the included files from the user by opening a the include
+        files dialog and setting up the state variable accordingly."""
+        if self._server_vars.get("fourc_yaml_content")["STRUCTURE GEOMETRY"]["FILE"]:
+            self.state.included_files.append(
+                {
+                    "name": self._server_vars["fourc_yaml_content"][
+                        "STRUCTURE GEOMETRY"
+                    ]["FILE"],
+                    "uploaded": False,
+                }
+            )
+
     def sync_funct_section_from_state(self):
         """Syncs the server-side functions section based on the current values
         of the dedicated state variables."""
@@ -1042,12 +1060,57 @@ class FourCWebServer:
         ) = read_fourc_yaml_file(temp_fourc_yaml_file)
         self._server_vars["fourc_yaml_name"] = Path(temp_fourc_yaml_file).name
 
+        self.request_included_files()
+
         # set vtu file path empty to make the convert button visible
         # (only if the function was not run yet, i.e., after the
         # initial rendering)
         self._server_vars["render_count"]["change_fourc_yaml_file"] += 1
         if self._server_vars["render_count"]["change_fourc_yaml_file"] > 1:
             self.state.vtu_path = ""
+
+    @controller.set("on_upload_include_file")
+    def on_upload_include_file(self, uploaded_file, index, **kwargs):
+        """Gets called when an included file is uploaded.
+
+        Saves the uploaded file into the state variable.
+        """
+        self.state.included_files[index]["content"] = uploaded_file
+        try:
+            if (
+                self.state.included_files[index]["name"]
+                != self.state.included_files[index]["content"]["name"]
+            ):
+                self.state.included_files[index]["error"] = (
+                    "File name mismatch. Expected: "
+                    + self.state.included_files[index]["name"]
+                )
+            self.state.included_files[index]["uploaded"] = True
+        except Exception:
+            self.state.included_files[index]["error"] = "Please upload a file."
+            self.state.included_files[index]["uploaded"] = False
+        self.state.dirty("included_files")
+        self.state.flush()
+
+    @controller.set("confirm_included_files")
+    def confirm_included_files(self, **kwargs):
+        """Gets called when the Accept button in the included files dialog is
+        pressed.
+
+        Saves all files into the temporary directory.
+        """
+        self.state.include_upload_open = False
+        print("Confirmation")
+
+        for included_file in self.state.included_files:
+            print(self._server_vars["temp_dir_object"].name)
+            # create file in temp directory
+            included_file_path = Path(
+                self._server_vars["temp_dir_object"].name,
+                included_file["content"]["name"],
+            )
+            with open(included_file_path, "wb") as f:
+                f.write(included_file["content"]["content"])
 
     @change("export_fourc_yaml_path")
     def change_export_fourc_yaml_path(self, export_fourc_yaml_path, **kwargs):

@@ -242,6 +242,64 @@ def _bottom_sheet_export(server_controller):
         )
 
 
+def _bottom_sheet_include_upload(server):
+    """Bottom sheet layout (EXPORT mode)."""
+
+    # server.state.included_files = [
+    #    {"name": "file1.txt", "error": "Wrong Wrong Wrong", "uploaded": False, "content": None},
+    #    {"name": "file2.txt", "error": "", "uploaded": True, "content": None},
+    #    {"name": "image.png", "error": "", "uploaded": True, "content": None},
+    # ]
+
+    with vuetify.VDialog(
+        v_model=("include_upload_open",), persistent=True, max_width="600px"
+    ):
+        with vuetify.VCard(classes="pa-5"):
+            vuetify.VCardTitle("Upload Included Files")
+
+            with vuetify.VCardText():
+                with vuetify.VRow(
+                    dense=True,
+                    align="center",
+                    v_for="(file, i) in included_files",
+                    key=("included_files[i].name",),
+                ):
+                    with vuetify.VCol(cols=11):
+                        vuetify.VFileInput(
+                            update_modelValue=(
+                                server.controller.on_upload_include_file,
+                                "[$event, i]",
+                            ),
+                            label=("file.name",),
+                            multiple=False,
+                            variant="outlined",
+                            color=(
+                                "file.error ? 'error' : file.uploaded ? 'success' : undefined",
+                            ),
+                            error_messages=("file.error",),
+                        )
+                    with vuetify.VCol(cols=1):
+                        vuetify.VIcon(
+                            icon=(
+                                "file.error || !file.uploaded ? 'mdi-alert-circle' : 'mdi-check-circle'",
+                            ),
+                            color=(
+                                "file.error ? 'error' : file.uploaded ? 'success' : 'primary'",
+                            ),
+                            classes="mr-2 pb-5 pl-3",
+                            size="36",
+                        )
+            with vuetify.VCardActions(classes="justify-end"):
+                vuetify.VBtn(
+                    "Accept",
+                    size="large",
+                    color="primary",
+                    disabled=("!included_files.every(f => !f.error && f.uploaded)",),
+                    click=(server.controller.confirm_included_files,),
+                    variant="text",
+                )
+
+
 def _sections_dropdown():
     """Section dropdown layout."""
     vuetify.VSelect(
@@ -1410,6 +1468,8 @@ def create_gui(server, render_window):
         with html.Div(v_if=("vtu_path != ''",)):
             _bottom_sheet_info()
             _bottom_sheet_export(server.controller)
+
+        _bottom_sheet_include_upload(server)
 
         with layout.drawer as drawer:
             drawer.width = 800
