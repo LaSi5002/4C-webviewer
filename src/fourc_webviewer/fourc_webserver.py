@@ -69,9 +69,8 @@ class FourCWebServer:
         self.server = get_server()
 
         # initialize include upload value: False (bottom sheet with include upload is not displayed until there is a fourcyaml file uploaded)
-        self.state.include_upload_open = True
+        self.state.include_upload_open = False
         self.state.included_files = []
-        self.state.uploaded_file = [None for _ in range(6)]
 
         # declare server-side variable dict: variables which should not
         # be exposed to the client-side
@@ -125,18 +124,13 @@ class FourCWebServer:
         # initialize state object
         self.init_state_and_server_vars()
 
-        # convert file to vtu and create dedicated render objects
-        fourc_geometry = FourCGeometry(
-            fourc_yaml_file=fourc_yaml_file,
-            temp_dir=Path(self._server_vars["temp_dir_object"].name),
-        )
-        self.state.vtu_path = fourc_geometry.vtu_file_path
+        if "render_window" not in self._actors:
+            self._server_vars["render_window"] = pv.Plotter()
+        self.state.vtu_path = ""
 
-        if self.state.vtu_path == "":
-            self.state.read_in_status = self.state.all_read_in_statuses[
-                "vtu_conversion_error"
-            ]
-        self.init_pyvista_render_objects()
+        self._server_vars["fourc_yaml_file_path"] = fourc_yaml_file
+
+        self.request_included_files()
 
         # create ui
         create_gui(self.server, self._server_vars["render_window"])
@@ -272,8 +266,18 @@ class FourCWebServer:
 
         The saved vtu file path is hereby utilized.
         """
-        if "render_window" not in self._actors:
-            self._server_vars["render_window"] = pv.Plotter()
+        print(self._server_vars["fourc_yaml_file_path"])
+        # convert file to vtu and create dedicated render objects
+        fourc_geometry = FourCGeometry(
+            fourc_yaml_file=self._server_vars["fourc_yaml_file_path"],
+            temp_dir=Path(self._server_vars["temp_dir_object"].name),
+        )
+        self.state.vtu_path = fourc_geometry.vtu_file_path
+
+        if self.state.vtu_path == "":
+            self.state.read_in_status = self.state.all_read_in_statuses[
+                "vtu_conversion_error"
+            ]
 
         self._server_vars["render_window"].clear_actors()
 
@@ -356,6 +360,8 @@ class FourCWebServer:
             )
         self.update_pyvista_render_objects()
 
+        self._server_vars["render_window"].reset_camera()
+
     def update_pyvista_render_objects(self):
         """Update/ initialize pyvista view objects (reader, thresholds, global
         COS, ...) for the rendered window.
@@ -364,7 +370,7 @@ class FourCWebServer:
         """
         legend_items = []
 
-        for dc in self._actors["result_description_nodes"].values():
+        for dc in self._actors.get("result_description_nodes", {}).values():
             dc.SetVisibility(False)
         if (
             self.state.selected_main_section_name == "RESULT DESCRIPTION"
@@ -377,7 +383,7 @@ class FourCWebServer:
             ].SetVisibility(True)
             legend_items.append(("Selected result description", "deepskyblue"))
 
-        for rd in self._actors["dc_geometry_entities"].values():
+        for rd in self._actors.get("dc_geometry_entities", {}).values():
             rd.SetVisibility(False)
         if (
             self.state.selected_main_section_name == "DESIGN CONDITIONS"
@@ -389,7 +395,7 @@ class FourCWebServer:
             ].SetVisibility(True)
             legend_items.append(("Selected design condition", "navy"))
 
-        for mat in self._actors["material_meshes"].values():
+        for mat in self._actors.get("material_meshes", {}).values():
             mat.SetVisibility(False)
         if (
             self.state.selected_material
@@ -918,6 +924,10 @@ class FourCWebServer:
                     all_contained_var_names = get_variable_names_in_funct_expression(
                         item_data["SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
                     )
+                    if "e" in all_contained_var_names:
+                        all_contained_var_names.remove("e")
+                    if "E" in all_contained_var_names:
+                        all_contained_var_names.remove("E")
 
                     # loop through contained variables and see whether they are evaluable
                     for contained_var_name in all_contained_var_names:
@@ -962,15 +972,24 @@ class FourCWebServer:
     def request_included_files(self):
         """Requests the included files from the user by opening a the include
         files dialog and setting up the state variable accordingly."""
+        self.state.included_files = []
         if self._server_vars.get("fourc_yaml_content")["STRUCTURE GEOMETRY"]["FILE"]:
             self.state.included_files.append(
                 {
-                    "name": self._server_vars["fourc_yaml_content"][
-                        "STRUCTURE GEOMETRY"
-                    ]["FILE"],
+                    "name": Path(
+                        self._server_vars["fourc_yaml_content"]["STRUCTURE GEOMETRY"][
+                            "FILE"
+                        ]
+                    ).name,
                     "uploaded": False,
+                    "error": None,
+                    "content": None,
                 }
             )
+        if self.state.included_files:
+            self.state.include_upload_open = True
+        else:
+            self.confirm_included_files()
 
     def sync_funct_section_from_state(self):
         """Syncs the server-side functions section based on the current values
@@ -1043,6 +1062,9 @@ class FourCWebServer:
     def change_fourc_yaml_file(self, fourc_yaml_file, **kwargs):
         """Reaction to change of state.fourc_yaml_file."""
 
+        if not fourc_yaml_file:
+            return
+
         # create temporary fourc yaml file from the content of the given file
         temp_fourc_yaml_file = Path(
             self._server_vars["temp_dir_object"].name, fourc_yaml_file["name"]
@@ -1060,8 +1082,6 @@ class FourCWebServer:
         ) = read_fourc_yaml_file(temp_fourc_yaml_file)
         self._server_vars["fourc_yaml_name"] = Path(temp_fourc_yaml_file).name
 
-        self.request_included_files()
-
         # set vtu file path empty to make the convert button visible
         # (only if the function was not run yet, i.e., after the
         # initial rendering)
@@ -1069,22 +1089,27 @@ class FourCWebServer:
         if self._server_vars["render_count"]["change_fourc_yaml_file"] > 1:
             self.state.vtu_path = ""
 
+        self.request_included_files()
+
+        print("test vtu path: " + self.state.vtu_path)
+
     @controller.set("on_upload_include_file")
     def on_upload_include_file(self, uploaded_file, index, **kwargs):
         """Gets called when an included file is uploaded.
 
         Saves the uploaded file into the state variable.
         """
+        print("wadwas")
         self.state.included_files[index]["content"] = uploaded_file
+
         try:
-            if (
-                self.state.included_files[index]["name"]
-                != self.state.included_files[index]["content"]["name"]
-            ):
+            if self.state.included_files[index]["name"] != uploaded_file["name"]:
                 self.state.included_files[index]["error"] = (
                     "File name mismatch. Expected: "
                     + self.state.included_files[index]["name"]
                 )
+            else:
+                self.state.included_files[index]["error"] = None
             self.state.included_files[index]["uploaded"] = True
         except Exception:
             self.state.included_files[index]["error"] = "Please upload a file."
@@ -1103,7 +1128,6 @@ class FourCWebServer:
         print("Confirmation")
 
         for included_file in self.state.included_files:
-            print(self._server_vars["temp_dir_object"].name)
             # create file in temp directory
             included_file_path = Path(
                 self._server_vars["temp_dir_object"].name,
@@ -1111,6 +1135,10 @@ class FourCWebServer:
             )
             with open(included_file_path, "wb") as f:
                 f.write(included_file["content"]["content"])
+
+        self.init_state_and_server_vars()
+
+        self.init_pyvista_render_objects()
 
     @change("export_fourc_yaml_path")
     def change_export_fourc_yaml_path(self, export_fourc_yaml_path, **kwargs):
@@ -1344,12 +1372,7 @@ class FourCWebServer:
             # initialize state object
             self.init_state_and_server_vars()
 
-            # convert to vtu
-            fourc_geometry = FourCGeometry(
-                fourc_yaml_file=temp_fourc_yaml_file,
-                temp_dir=Path(self._server_vars["temp_dir_object"].name),
-            )
-            self.state.vtu_path = fourc_geometry.vtu_file_path
+            self.init_pyvista_render_objects()
 
             # catch eventual conversion error
             if self.state.vtu_path == "":
