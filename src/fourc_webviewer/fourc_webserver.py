@@ -128,9 +128,7 @@ class FourCWebServer:
             self._server_vars["render_window"] = pv.Plotter()
         self.state.vtu_path = ""
 
-        self._server_vars["fourc_yaml_file_path"] = fourc_yaml_file
-
-        self.request_included_files()
+        self._server_vars["fourc_yaml_file_dir"] = Path(fourc_yaml_file).parent
 
         # create ui
         create_gui(self.server, self._server_vars["render_window"])
@@ -266,10 +264,11 @@ class FourCWebServer:
 
         The saved vtu file path is hereby utilized.
         """
-        print(self._server_vars["fourc_yaml_file_path"])
         # convert file to vtu and create dedicated render objects
         fourc_geometry = FourCGeometry(
-            fourc_yaml_file=self._server_vars["fourc_yaml_file_path"],
+            fourc_yaml_file=self._server_vars["temp_dir_object"].name
+            + "\\"
+            + self._server_vars["fourc_yaml_name"],
             temp_dir=Path(self._server_vars["temp_dir_object"].name),
         )
         self.state.vtu_path = fourc_geometry.vtu_file_path
@@ -973,19 +972,35 @@ class FourCWebServer:
         """Requests the included files from the user by opening a the include
         files dialog and setting up the state variable accordingly."""
         self.state.included_files = []
-        if self._server_vars.get("fourc_yaml_content")["STRUCTURE GEOMETRY"]["FILE"]:
-            self.state.included_files.append(
-                {
-                    "name": Path(
-                        self._server_vars["fourc_yaml_content"]["STRUCTURE GEOMETRY"][
-                            "FILE"
-                        ]
-                    ).name,
-                    "uploaded": False,
-                    "error": None,
-                    "content": None,
-                }
+
+        exo_file = Path(
+            self._server_vars["fourc_yaml_file_dir"],
+            self._server_vars["fourc_yaml_content"]["STRUCTURE GEOMETRY"]["FILE"],
+        )
+        if exo_file.is_file():
+            exo_temp_path = Path(
+                self._server_vars["temp_dir_object"].name,
+                self._server_vars["fourc_yaml_content"]["STRUCTURE GEOMETRY"]["FILE"],
             )
+            with open(exo_file, "rb") as fr:
+                with open(exo_temp_path, "wb") as fw:
+                    fw.write(fr.read())
+        else:
+            if self._server_vars.get("fourc_yaml_content")["STRUCTURE GEOMETRY"][
+                "FILE"
+            ]:
+                self.state.included_files.append(
+                    {
+                        "name": Path(
+                            self._server_vars["fourc_yaml_content"][
+                                "STRUCTURE GEOMETRY"
+                            ]["FILE"]
+                        ).name,
+                        "uploaded": False,
+                        "error": None,
+                        "content": None,
+                    }
+                )
         if self.state.included_files:
             self.state.include_upload_open = True
         else:
@@ -1085,9 +1100,9 @@ class FourCWebServer:
         # set vtu file path empty to make the convert button visible
         # (only if the function was not run yet, i.e., after the
         # initial rendering)
-        self._server_vars["render_count"]["change_fourc_yaml_file"] += 1
-        if self._server_vars["render_count"]["change_fourc_yaml_file"] > 1:
-            self.state.vtu_path = ""
+        # self._server_vars["render_count"]["change_fourc_yaml_file"] += 1
+        # if self._server_vars["render_count"]["change_fourc_yaml_file"] > 1:
+        #    self.state.vtu_path = ""
 
         self.request_included_files()
 
@@ -1139,6 +1154,7 @@ class FourCWebServer:
         self.init_state_and_server_vars()
 
         self.init_pyvista_render_objects()
+        print("tes2t vtu path: " + self.state.vtu_path)
 
     @change("export_fourc_yaml_path")
     def change_export_fourc_yaml_path(self, export_fourc_yaml_path, **kwargs):
@@ -1173,7 +1189,6 @@ class FourCWebServer:
         # material (if we are not in an initial rendering scenario)
         if self._server_vars["render_count"]["change_selected_material"] > 0:
             # first get the master material id
-            master_mat_id = self.determine_master_mat_ind_for_current_selection()
 
             # update plotter / render objects
             self.update_pyvista_render_objects()
