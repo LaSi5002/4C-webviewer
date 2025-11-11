@@ -267,7 +267,9 @@ class FourCWebServer:
 
         The saved vtu file path is hereby utilized.
         """
-        if "render_window" not in self._actors:
+
+        # render window initialization: to be done only once while starting the webviewer, otherwise no proper binding within the current setup!
+        if "render_window" not in self._server_vars:
             self._server_vars["render_window"] = pv.Plotter()
 
         self._server_vars["render_window"].clear_actors()
@@ -1174,7 +1176,9 @@ class FourCWebServer:
         # material (if we are not in an initial rendering scenario)
         if self._server_vars["render_count"]["change_selected_material"] > 0:
             # first get the master material id
-            master_mat_id = self.determine_master_mat_ind_for_current_selection()
+            master_mat_id = self.determine_master_mat_ind_for_material(
+                selected_material
+            )
 
             # update plotter / render objects
             self.update_pyvista_render_objects()
