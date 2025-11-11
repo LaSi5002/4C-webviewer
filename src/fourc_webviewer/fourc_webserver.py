@@ -12,6 +12,7 @@ import pyvista as pv
 import yaml
 from fourcipp import CONFIG
 from fourcipp.fourc_input import FourCInput, ValidationError
+from fourcipp.utils.yaml_io import load_yaml
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
@@ -1011,41 +1012,58 @@ class FourCWebServer:
             6  # precision for the user input of the values defined above: x, y, z and t_max
         )
 
-    def request_included_files(self):
-        """Requests the included files from the user by opening a the include
-        files dialog and setting up the state variable accordingly."""
-        included_files = []
+    def append_include_files(self, file_paths):
+        """Appends list of files to the included files input field.
 
-        exo_file_name = Path(
-            self._server_vars.get("fourc_yaml_content")
-            .sections.get("STRUCTURE GEOMETRY", {})
-            .get("FILE")
-            or ""
-        ).name
-        if exo_file_name:
-            exo_file_server = Path(
+        They will be uploaded before the user can edit or view the file.
+        """
+        yaml_include_names = [Path(file_path).name for file_path in file_paths]
+        included_files = copy.deepcopy(self.state.included_files)
+        for include_name in yaml_include_names:
+            include_file_server = Path(
                 self._server_vars["fourc_yaml_file_dir"],
-                exo_file_name,
+                include_name,
             )
-            exo_temp_path = Path(
+            include_temp_path = Path(
                 self._server_vars["temp_dir_object"].name,
-                exo_file_name,
+                include_name,
             )
-            if exo_file_server.is_file():
-                with open(exo_file_server, "rb") as fr:
-                    with open(exo_temp_path, "wb") as fw:
+            if include_file_server.is_file():
+                with open(include_file_server, "rb") as fr:
+                    with open(include_temp_path, "wb") as fw:
                         fw.write(fr.read())
-            elif not exo_temp_path.is_file():
+            elif not include_temp_path.is_file():
                 included_files.append(
                     {
-                        "name": exo_file_name,
+                        "name": include_name,
                         "uploaded": False,
                         "error": None,
                         "content": None,
                     }
                 )
-
         self.state.included_files = included_files
+
+    def request_included_files(self):
+        """Requests the included files from the user by opening a the include
+        files dialog and setting up the state variable accordingly."""
+
+        self.append_include_files(
+            [
+                self._server_vars.get("fourc_yaml_content")
+                .sections.get("STRUCTURE GEOMETRY", {})
+                .get("FILE")
+                or ""
+            ]
+        )
+        # add yaml includes
+        yaml_include_names = [
+            Path(file_path).name
+            for file_path in self._server_vars.get("fourc_yaml_content").sections.get(
+                "INCLUDES", []
+            )
+        ]
+        self.append_include_files(yaml_include_names)
+
         if self.state.included_files:
             self.state.include_upload_open = True
         else:
@@ -1167,6 +1185,15 @@ class FourCWebServer:
         Saves the uploaded file into the state variable.
         """
         self.state.included_files[index]["content"] = uploaded_file
+
+        if uploaded_file["name"].split(".")[-1] in ["yaml", "yml"]:
+            content = (
+                load_yaml(uploaded_file.get("content", {}).get("content", "")) or {}
+            )
+            yaml_include_names = [
+                Path(file_path).name for file_path in content.get("INCLUDES", [])
+            ]
+            self.append_include_files(yaml_include_names)
 
         try:
             if self.state.included_files[index]["name"] != uploaded_file["name"]:
