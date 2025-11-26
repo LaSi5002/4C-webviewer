@@ -7,9 +7,8 @@ import re
 from pathlib import Path
 
 import numpy as np
-import pyvista as pv
 from fourcipp.fourc_input import FourCInput
-from lnmmeshio import read, write
+from lnmmeshio import read, read_mesh, write
 from lnmmeshio.discretization import (
     LineNodeset,
     PointNodeset,
@@ -18,10 +17,40 @@ from lnmmeshio.discretization import (
 )
 from lnmmeshio.fiber import Fiber
 from lnmmeshio.meshio_to_discretization import mesh2Discretization
-from meshio.__about__ import __version__
+from loguru import logger
 from meshio._common import warn
 from meshio._exceptions import ReadError
 from meshio._mesh import Mesh
+
+# enabled suffixes for geometry files
+EXODUS_FILE_SUFFIXES = [".exo", ".e"]
+VTU_FILE_SUFFIXES = [".vtu"]
+SUPPORTED_GEOMETRY_FORMATS = EXODUS_FILE_SUFFIXES + VTU_FILE_SUFFIXES
+
+
+def read_geom_mesh(mesh_file: Path) -> Mesh:
+    """Reads and performs postprocessing of the read-in mesh for external
+    geometry files.
+
+    Args:
+        mesh_file: external file containing geometric mesh
+    Returns:
+        Mesh: read-in and postprocessed mesh
+    """
+    if mesh_file.suffix in EXODUS_FILE_SUFFIXES:
+        mesh = read_exodus(
+            filename=mesh_file,
+            use_set_names=False,
+        )
+        return postprocess_exo_mesh(mesh=mesh)
+    elif mesh_file.suffix in VTU_FILE_SUFFIXES:
+        mesh = read_mesh(
+            filename=str(mesh_file.resolve()),
+        )
+        return postprocess_vtu_mesh(mesh=mesh)
+    else:
+        raise Exception(f"Unsupported file format for mesh file {mesh_file}")
+
 
 exodus_to_meshio_type = {
     "SPHERE": "vertex",
@@ -110,9 +139,9 @@ def switch_node_order(mesh_exo: Mesh) -> Mesh:
     consistent upon conversion to lnmmeshio's Discretization object.
 
     Args:
-        mesh_exo (meshio.Mesh): read-in Exodus mesh
+        mesh_exo: read-in Exodus mesh
     Returns:
-        (meshio.Mesh): modified read-in Exodus mesh, with adapted order
+        Mesh: modified read-in Exodus mesh, with adapted order
     """
 
     copy_mesh_exo = mesh_exo.copy()
@@ -144,6 +173,56 @@ def switch_node_order(mesh_exo: Mesh) -> Mesh:
                 cell_block.data[el_id] = vtu_element_nodes
 
     return copy_mesh_exo
+
+
+def postprocess_exo_mesh(mesh: Mesh) -> Mesh:
+    """Postprocessing steps for the read-in Exodus mesh.
+
+    Args:
+        mesh: read-in Exodus mesh
+    Returns:
+        Mesh: postprocessed read-in Exodus mesh
+    """
+
+    return switch_node_order(mesh_exo=mesh)
+
+
+def postprocess_vtu_mesh(mesh: Mesh) -> Mesh:
+    """Postprocessing steps for the read-in vtu mesh.
+
+    Args:
+        mesh: read-in vtu mesh
+    Returns:
+        Mesh: postprocessed read-in vtu mesh
+    """
+    copy_mesh = mesh.copy()
+
+    # --> loop through point sets in point_data, and move them to dedicated point_sets "point_set_1" -> "1"
+
+    # collect point data keys to move
+    keys_to_rename = []
+    for pd_array in copy_mesh.point_data:
+        if pd_array.startswith("point_set_"):
+            keys_to_rename.append(pd_array)
+
+    # move "point data" to the dedicated point sets
+    for old_key in keys_to_rename:
+        new_key = old_key.replace("point_set_", "")
+        copy_mesh.point_sets[new_key] = np.where(mesh.point_data[old_key] == 1)[0]
+        copy_mesh.point_data.pop(old_key)
+
+    # separate cell_data['block_id'] into specific cell sets to have the same structure as for exo files
+    if "block_id" in copy_mesh.cell_data:
+        cell_data_block_id = copy_mesh.cell_data["block_id"][0]
+
+        # get all unique block ids
+        unique_block_ids = np.unique(cell_data_block_id)
+
+        # loop through unique block ids and create their respective cell sets
+        for bid in unique_block_ids:
+            copy_mesh.cell_sets[str(int(bid))] = np.where(cell_data_block_id == bid)[0]
+
+    return copy_mesh
 
 
 def _categorize(names):
@@ -344,7 +423,9 @@ def read_exodus(filename, use_set_names=False):  # noqa: C901
 
     # write point and cell sets with correct ids
     point_sets = {str(id): dat.tolist() for id, dat in zip(ns_ids, ns)}
-    cell_sets = {name: cell_set for name, cell_set in zip(eb_ids, cell_sets.values())}
+    cell_sets = {
+        str(name): cell_set for name, cell_set in zip(eb_ids, cell_sets.values())
+    }
 
     if use_set_names:
         point_sets = {name: dat for name, dat in zip(ns_names, ns)}
@@ -363,7 +444,7 @@ def read_exodus(filename, use_set_names=False):  # noqa: C901
     )
 
 
-def check_for_geometry_files(fourc_yaml: FourCInput) -> list:
+def get_geometry_file(fourc_yaml: FourCInput) -> list:
     """Checks the content of a fourc yaml file for referenced geometry files,
     e.g., contained within STRUCTURE GEOMETRY / FILE. Returns the identified
     file, whereby we previously verify whether all given files are the same
@@ -397,70 +478,90 @@ def check_for_geometry_files(fourc_yaml: FourCInput) -> list:
 
 
 class FourCGeometry:
-    def __init__(self, fourc_yaml_file: str | Path, temp_dir: str | Path):
+    def __init__(
+        self,
+        fourc_yaml_file: str | Path,
+        temp_dir: str | Path,
+        first_render: bool = False,
+    ):
         """Initialize geometry class based on the given input file.
 
         Args:
             fourc_yaml_file (str | Path): path to the yaml input
-            temp_dir (str | Path): path to the yaml input
+            temp_dir (str | Path): path to the temporary directory for the generated vtu file
+            first_render (bool): is this the initial webviewer rendering, i.e., the rendering of the default files?
         """
 
         # read-in and save yaml file content
         self._fourc_yaml_file = fourc_yaml_file
         self._fourc_yaml = FourCInput.from_4C_yaml(input_file_path=fourc_yaml_file)
 
-        # create vtu file based on the geometry type
+        # set path for the vtu file to be created based on the geometry type
         self._vtu_file_path = str(Path(temp_dir) / f"{Path(fourc_yaml_file).stem}.vtu")
-        if self.geom_type == "exo":
-            try:
-                # read exodus mesh
-                self._mesh_file = (
-                    Path(fourc_yaml_file).parent
-                    / self._fourc_yaml["STRUCTURE GEOMETRY"]["FILE"]
-                )
-                if not self._mesh_file.exists():
-                    raise Exception(
-                        f"The mesh file {self._mesh_file} does not exist for the fourc yaml file {fourc_yaml_file}"
-                    )
-                self._mesh_exo = read_exodus(
-                    filename=self._mesh_file,
-                    use_set_names=False,
-                )
-                self._mesh_exo = switch_node_order(mesh_exo=self._mesh_exo)  # -> not
-                # yet, this will mess up the applied boundary
-                # conditions, because 4C uses another order format
 
-                # convert mesh to discretization preliminarily, without further info from the yaml file -> this is then added below
-                self._dis = mesh2Discretization(mesh=self._mesh_exo)
-
-                # enhance discretization with further information from the fourc yaml file
-                self.enhance_exo_dis_with_fourc_yaml_info()
-
-                # convert to vtu
-                self.convert_dis_to_vtu()
-
-            except Exception as exc:
-                print(
-                    exc
-                )  # currently, we throw the conversion error as terminal output
-                self._vtu_file_path = ""
-
-        elif self.geom_type == "legacy":
+        # check for the geometry type
+        if self.geom_type == "legacy":
             # convert yaml file to vtu file and return the path to the vtu file
             try:
                 self._dis = read(str(fourc_yaml_file))
                 self.convert_dis_to_vtu()
             except Exception as exc:  # if file conversion not successful
-                print(
-                    exc
-                )  # currently, we throw the lnmmeshio conversion error as terminal output
+                # log unsuccessful conversion
+                logger.error(exc)
+                logger.critical("Conversion to vtu was not successful")
+                self._vtu_file_path = ""
+        elif self.geom_type == "external_geometry":
+            try:
+                # read mesh: for the first rendering, we take the relative path with respect to the yaml file; for subsequent renderings, we will account for the absolute path
+                self._mesh_file = Path(
+                    get_geometry_file(fourc_yaml=self._fourc_yaml)[0]
+                )
+                if first_render:
+                    self._mesh_file = Path(fourc_yaml_file).parent / self._mesh_file
+                else:
+                    self._mesh_file = self._mesh_file.resolve()
+                if not self._mesh_file.exists():
+                    raise Exception(
+                        f"The mesh file {self._mesh_file} does not exist for the fourc yaml file {fourc_yaml_file}"
+                    )
+
+                # read and postprocess mesh
+                self._mesh = read_geom_mesh(self._mesh_file)
+
+                # convert mesh to discretization preliminarily, without further info from the yaml file -> this is then added below
+                self._dis = mesh2Discretization(mesh=self._mesh)
+
+                # enhance discretization with further information from the fourc yaml file
+                self.enhance_dis_with_fourc_yaml_info()
+
+                # convert to vtu
+                self.convert_dis_to_vtu()
+
+                # log successful conversion
+                logger.success(
+                    f"Successfully converted geometry to file {self._vtu_file_path}"
+                )
+
+            except Exception as exc:
+                # log unsuccessful conversion
+                logger.error(exc)
+                logger.critical("Conversion to vtu was not successful")
                 self._vtu_file_path = ""
 
     @property
     def geom_type(self) -> str:
         """Get geometry type for the given yaml input."""
-        if check_for_geometry_files(fourc_yaml=self._fourc_yaml):
-            return "exo"
+        # check for eventual geometry files
+        if get_geometry_file(fourc_yaml=self._fourc_yaml):
+            # get geometry file suffix and return the associated geometry type
+            geom_file = get_geometry_file(fourc_yaml=self._fourc_yaml)[0]
+            geom_file_suffix = Path(geom_file).resolve().suffix
+            if geom_file_suffix in SUPPORTED_GEOMETRY_FORMATS:
+                return "external_geometry"
+            else:
+                raise Exception(
+                    f"The given geometry file {geom_file} is currently not supported!"
+                )
         elif [k for k in self._fourc_yaml.sections if k.endswith("ELEMENTS")]:
             return "legacy"
         else:
@@ -482,7 +583,7 @@ class FourCGeometry:
         """Get element ids of a given block (element block id is 1-based)."""
         return np.where(self._dis.cell_data["GROUP_ID"] == element_block_id - 1)[0]
 
-    def get_all_nodes_in_element_block_exo(self, element_block_id: int):
+    def get_all_nodes_in_element_block(self, element_block_id: int):
         """Retrieve all unique node indices in a specified element block for
         Exodus geometry.
 
@@ -493,10 +594,10 @@ class FourCGeometry:
         """
 
         # get cumulative element counts for each block
-        cum_el_counts = np.cumsum([len(cs) for cs in self._mesh_exo.cells])
+        cum_el_counts = np.cumsum([len(cs) for cs in self._mesh.cells])
 
         # get all element ids in the considered cell set
-        all_el_ids = self._mesh_exo.cell_sets[element_block_id]
+        all_el_ids = self._mesh.cell_sets[str(element_block_id)]
 
         # declare array containing all node ids
         all_node_ids = []
@@ -512,14 +613,13 @@ class FourCGeometry:
                 rel_el_id = el_id - cum_el_counts[block_index - 1]
 
             # retrieve corresponding node ids
-            all_node_ids.append(self._mesh_exo.cells[block_index].data[rel_el_id - 1])
+            all_node_ids.append(self._mesh.cells[block_index].data[rel_el_id - 1])
 
         return np.unique(all_node_ids)
 
-    def enhance_exo_dis_with_fourc_yaml_info(self):
+    def enhance_dis_with_fourc_yaml_info(self):
         """Enhance contained Discretization with further information from the
         fourc yaml file -> read in nodesets, and material data."""
-
         # --> read in nodeset info (pointnodesets, linenodesets, surfacenodesets, volumenodesets) based on the design sections specified in the yaml file
         # get all design sections
         all_design_sections = [
@@ -560,18 +660,20 @@ class FourCGeometry:
                     entity_type = entity["ENTITY_TYPE"]
                     if entity_type == "legacy_id":
                         raise Exception(
-                            "No support provided yet for entity type legacy_id when considering exodus files!"
+                            "No support provided yet for entity type legacy_id when considering Exodus and vtu files!"
                         )
 
                 # get referenced nodes in the considered entity
                 all_cond_nodes = []
                 if entity_type == "node_set_id":
-                    all_cond_nodes = np.array(
-                        self._mesh_exo.point_sets[f"{entity_number}"]
-                    )
+                    all_cond_nodes = np.array(self._mesh.point_sets[f"{entity_number}"])
                 elif entity_type == "element_block_id":
-                    all_cond_nodes = self.get_all_nodes_in_element_block_exo(
+                    all_cond_nodes = self.get_all_nodes_in_element_block(
                         element_block_id=entity_number
+                    )
+                else:
+                    raise Exception(
+                        f"Unsupported entity type: {entity_type} for entity {entity} of condition {dsect_name}!"
                     )
 
                 # add point sets
@@ -598,6 +700,10 @@ class FourCGeometry:
                         self._dis.nodes[cond_node].volumenodesets.append(
                             VolumeNodeset(id=str(entity_number))
                         )
+                else:
+                    raise Exception(
+                        f"Unsupported geometry type {geometry_type} for condition {dsect_name}!"
+                    )
 
         # -->  read-in element block info and add it to discretization
         # read * GEOMETRY sections

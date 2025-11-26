@@ -9,9 +9,9 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
-import yaml
 from fourcipp import CONFIG
 from fourcipp.fourc_input import FourCInput, ValidationError
+from loguru import logger
 from trame.app import get_server
 from trame.decorators import TrameApp, change, controller
 
@@ -30,10 +30,8 @@ from fourc_webviewer.input_file_utils.io_utils import (
 from fourc_webviewer.python_utils import (
     convert_string2number,
     dict_leaves_to_number_if_schema,
-    dict_number_leaves_to_string,
     find_value_recursively,
     parse_validation_error_text,
-    smart_string2number_cast,
 )
 from fourc_webviewer.read_geometry_from_file import (
     FourCGeometry,
@@ -41,7 +39,7 @@ from fourc_webviewer.read_geometry_from_file import (
 
 # Global variable
 # factor which scales the spheres used to represent nodal design conditions and result descriptions with respect to the problem length scale
-PV_SPHERE_FRAC_SCALE = 1.0 / 45.0
+PV_SPHERE_FRAC_SCALE = 1.0 / 75.0
 
 # always set pyvista to plot off screen with Trame
 pv.OFF_SCREEN = True
@@ -124,6 +122,7 @@ class FourCWebServer:
         fourc_geometry = FourCGeometry(
             fourc_yaml_file=fourc_yaml_file,
             temp_dir=Path(self._server_vars["temp_dir_object"].name),
+            first_render=True,
         )
         self.state.vtu_path = fourc_geometry.vtu_file_path
 
@@ -274,8 +273,10 @@ class FourCWebServer:
 
         self._server_vars["render_window"].clear_actors()
 
+        # read problem mesh
         problem_mesh = pv.read(self.state.vtu_path)
-        # get problem mesh
+
+        # save problem mesh as actor
         self._actors["problem_mesh"] = self._server_vars["render_window"].add_mesh(
             problem_mesh, color="bisque", opacity=0.2, render=False
         )
@@ -285,6 +286,7 @@ class FourCWebServer:
         for material in self.state.materials_section.keys():
             # get meshes of materials
             master_mat_ind = self.determine_master_mat_ind_for_material(material)
+
             self._actors["material_meshes"][material] = self._server_vars[
                 "render_window"
             ].add_mesh(
@@ -305,11 +307,11 @@ class FourCWebServer:
         self._actors["dc_geometry_entities"] = {}
         # get nodes of the selected condition geometries + entities
         for dc_entity in all_dc_entities:
-            points = problem_mesh.threshold(
-                value=1.0,
-                scalars=f"d{dc_entity['geometry_type'].lower()}{dc_entity['entity'].replace('E', '')}",
-                preference="point",
-            ).points
+            # get mesh points associated with design condition
+            condition_array_name = f"d{dc_entity['geometry_type'].lower()}{dc_entity['entity'].replace('E', '')}"
+            points = problem_mesh.points[
+                np.where(problem_mesh.point_data[condition_array_name] == 1)[0], :
+            ]
 
             if points.size:
                 pts = pv.PolyData(points)
@@ -449,7 +451,7 @@ class FourCWebServer:
         ].sections.items():
             if (
                 not any(substr in section_name for substr in substr_to_exclude)
-                and not section_name in sect_to_exclude
+                and section_name not in sect_to_exclude
             ):  # account for sections to be excluded as defined above
                 # check if the current section is "SOLVER<number>"
                 if re.match("^SOLVER [0-9]+", section_name):  # yes
@@ -898,7 +900,9 @@ class FourCWebServer:
 
                 else:
                     # warning that this function item is not known
-                    print(f"Unknown function item {item_data} for funct {funct_name}!")
+                    logger.warning(
+                        f"Unknown function item {item_data} for funct {funct_name}!"
+                    )
 
                     # we don't enable visualization
                     item_data["VISUALIZATION"] = False
@@ -1175,11 +1179,6 @@ class FourCWebServer:
         # we need to select the material region based on the newly selected
         # material (if we are not in an initial rendering scenario)
         if self._server_vars["render_count"]["change_selected_material"] > 0:
-            # first get the master material id
-            master_mat_id = self.determine_master_mat_ind_for_material(
-                selected_material
-            )
-
             # update plotter / render objects
             self.update_pyvista_render_objects()
 
