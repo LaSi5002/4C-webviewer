@@ -4,6 +4,7 @@ web viewer."""
 
 import copy
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -125,7 +126,7 @@ class FourCWebServer:
         # initialize state object
         self.init_state_and_server_vars()
 
-        if "render_window" not in self._actors:
+        if "render_window" not in self._server_vars:
             self._server_vars["render_window"] = pv.Plotter()
         self.state.vtu_path = ""
 
@@ -266,46 +267,43 @@ class FourCWebServer:
         The saved vtu file path is hereby utilized.
         """
         # convert file to vtu and create dedicated render objects
-        if not Path(
-            self._server_vars["temp_dir_object"].name
-            + "\\"
-            + self._server_vars["fourc_yaml_name"]
+        if not (
+            Path(self._server_vars["temp_dir_object"].name)
+            / self._server_vars["fourc_yaml_name"]
         ).exists():
             raise Exception(
                 "File does not exist: "
                 + self._server_vars["temp_dir_object"].name
-                + "\\"
+                + "/"
                 + self._server_vars["fourc_yaml_name"]
             )
-        geometry_file_name = (
-            self._server_vars["fourc_yaml_content"]
-            .sections.get("STRUCTURE GEOMETRY", {})
-            .get("FILE")
-        )
+
+        # contains the dict of the structure geometry section of the current yaml file.
+        structure_geometry_section = self._server_vars[
+            "fourc_yaml_content"
+        ].sections.get("STRUCTURE GEOMETRY", {})
+        # contains the name of the geometry file defined in the STRUCTURE GEOMETRY section.
+        geometry_file_name = structure_geometry_section.get("FILE", None)
+
         if geometry_file_name:
-            if not Path(
-                self._server_vars["temp_dir_object"].name
-                + "\\"
-                + Path(
-                    self._server_vars["fourc_yaml_content"]
-                    .sections.get("STRUCTURE GEOMETRY", {})
-                    .get("FILE")
-                ).name
+            # ensure that geometry_file_name really only contains the name and not a path
+            geometry_file_name = Path(geometry_file_name).name
+            if not (
+                Path(self._server_vars["temp_dir_object"].name) / geometry_file_name
             ).exists():
+                # if the current yaml file references a geometry file it will have already been loaded into the temp dir by now.
+                # if not something went wrong
                 raise Exception(
                     "File does not exist: "
                     + self._server_vars["temp_dir_object"].name
-                    + "\\"
-                    + Path(
-                        self._server_vars["fourc_yaml_content"]["STRUCTURE GEOMETRY"][
-                            "FILE"
-                        ]
-                    ).name
+                    + "/"
+                    + geometry_file_name
                 )
+
+        # creates the FourCGeometry. By now every used file has to be in the temp dir
         fourc_geometry = FourCGeometry(
-            fourc_yaml_file=self._server_vars["temp_dir_object"].name
-            + "\\"
-            + self._server_vars["fourc_yaml_name"],
+            fourc_yaml_file=Path(self._server_vars["temp_dir_object"].name)
+            / self._server_vars["fourc_yaml_name"],
             temp_dir=Path(self._server_vars["temp_dir_object"].name),
         )
         self.state.vtu_path = fourc_geometry.vtu_file_path
@@ -972,10 +970,6 @@ class FourCWebServer:
                     all_contained_var_names = get_variable_names_in_funct_expression(
                         item_data["SYMBOLIC_FUNCTION_OF_SPACE_TIME"]
                     )
-                    if "e" in all_contained_var_names:
-                        all_contained_var_names.remove("e")
-                    if "E" in all_contained_var_names:
-                        all_contained_var_names.remove("E")
 
                     # loop through contained variables and see whether they are evaluable
                     for contained_var_name in all_contained_var_names:
@@ -1022,22 +1016,32 @@ class FourCWebServer:
 
         They will be uploaded before the user can edit or view the file.
         """
+        # get the file names of the needed files. These names will be shown in the pop up window.
         yaml_include_names = [Path(file_path).name for file_path in file_paths]
         included_files = copy.deepcopy(self.state.included_files)
+        # make a copy, so the state triggers reactivity
         for include_name in yaml_include_names:
+            # this file path is created to check weather the needed file is already present on the server.
+            # If the user is, for example, continuously working on a file that references an exodus file
+            # they can copy it into the server file directory and it will be opened automatically
+            # without prompting the user to upload the .exo file every time.
             include_file_server = Path(
                 self._server_vars["fourc_yaml_file_dir"],
                 include_name,
             )
+            # every file the user is working on will be loaded into the temp directory.
+            # This is because the FourCGeometry Constructor requires the .yaml file and the .exo file to be in the same directory.
             include_temp_path = Path(
                 self._server_vars["temp_dir_object"].name,
                 include_name,
             )
+
+            # if the file has been copied into the server directory it will be loaded into the temp dir automatically
+            # without prompting the user every time they open the .yaml file.
             if include_file_server.is_file():
-                with open(include_file_server, "rb") as fr:
-                    with open(include_temp_path, "wb") as fw:
-                        fw.write(fr.read())
+                shutil.copyfile(include_file_server, include_temp_path)
             elif not include_temp_path.is_file():
+                # This is the standard case. The file is not present on the server and the user is prompted to upload it.
                 included_files.append(
                     {
                         "name": include_name,
@@ -1046,20 +1050,24 @@ class FourCWebServer:
                         "content": None,
                     }
                 )
+        # trigger reactivity
         self.state.included_files = included_files
 
     def request_included_files(self):
         """Requests the included files from the user by opening a the include
         files dialog and setting up the state variable accordingly."""
 
-        self.append_include_files(
-            [
-                self._server_vars.get("fourc_yaml_content")
-                .sections.get("STRUCTURE GEOMETRY", {})
-                .get("FILE")
-                or ""
-            ]
+        self.state.included_files = []
+        # if the uploaded .yaml file contains a reference to a geometry file, this variable will be it's name.
+        # otherwise it will be None
+        geometry_file_name = (
+            self._server_vars.get("fourc_yaml_content")
+            .sections.get("STRUCTURE GEOMETRY", {})
+            .get("FILE", None)
         )
+
+        if geometry_file_name:
+            self.append_include_files([geometry_file_name])
         # add yaml includes
         yaml_include_names = [
             Path(file_path).name
@@ -1435,10 +1443,14 @@ class FourCWebServer:
     @change("selected_funct")
     def change_selected_funct(self, selected_funct, **kwargs):
         """Reaction to change of state.selected_funct."""
+        # if there is no function_section
+        if not self.state.funct_section.get(selected_funct, {}):
+            return
+
         # set the selected funct item to the first within the newly
         # selected funct
         self.state.selected_funct_item = next(
-            iter(self.state.funct_section.get(selected_funct, {}))
+            iter(self.state.funct_section.get(selected_funct, {})),
         )
 
         # update plotly figure
