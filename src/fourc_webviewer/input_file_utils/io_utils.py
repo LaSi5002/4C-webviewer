@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from fourcipp.fourc_input import FourCInput
+from loguru import logger
 
 from fourc_webviewer.python_utils import flatten_list
 
@@ -39,7 +40,7 @@ def read_fourc_yaml_file(fourc_yaml_file):
         # validate 4C yaml file
         fourc_yaml_content.validate()
     except Exception as exc:
-        print(exc)  # currently, we throw the exception as terminal output
+        logger.error(exc)  # currently, we throw the exception as terminal output
         return (FourCInput({}), [], 0, 0, False)
 
     with open(fourc_yaml_file, "r") as input_file:
@@ -78,7 +79,7 @@ def write_fourc_yaml_file(fourc_yaml_content, new_fourc_yaml_file):
     try:
         fourc_yaml_content.validate()
     except Exception as exc:
-        print(exc)  # currently, we throw the exception as terminal output
+        logger.error(exc)  # currently, we throw the exception as terminal output
         return False
 
     # check if the output file suffix is supported
@@ -251,6 +252,11 @@ def mat_specifiers():
         "VISCOPLAST_LAW_ID",
         "FIBER_READER_ID",
         "STR_TENS_ID",
+        "MATIDSCONST",
+        "MATIDMIXTURERULE",
+        "GROWTH_STRATEGY",
+        "FIBER_MATERIAL_ID",
+        "PRESTRESS_STRATEGY",
     ]
 
 
