@@ -1,26 +1,51 @@
 """Test FourC webserver."""
 
+from pathlib import Path
+
 import pytest
 from fourcipp.fourc_input import FourCInput
 
 from fourc_webviewer.fourc_webserver import FourCWebServer
-from fourc_webviewer_default_files import DEFAULT_INPUT_FILE
+
+# list of test files to be verified
+TEST_FILES = [
+    Path(__file__).parent
+    / "files"
+    / "mat_transviso_viscoplast_refJC_log_substep.4C.yaml",
+    Path(__file__).parent / "files" / "tutorial_solid_exo.4C.yaml",
+    Path(__file__).parent / "files" / "tutorial_solid_vtu.4C.yaml",
+]
+
+# server variables which should be fully initialized
+SERVER_VARS_TO_CHECK = [
+    ("render_count", {"change_selected_material": 0, "change_fourc_yaml_file": 0}),
+    ("fourc_yaml_content", FourCInput.from_4C_yaml),
+    ("fourc_yaml_name", lambda f: f.name),
+]
 
 
-@pytest.fixture(name="fourc_webserver")
-def fixture_fourc_webserver():
-    """FourC webserver fixture."""
-    return FourCWebServer(fourc_yaml_file=DEFAULT_INPUT_FILE)
+@pytest.mark.parametrize("fourc_yaml_file", TEST_FILES)
+@pytest.mark.parametrize("key, expected", SERVER_VARS_TO_CHECK)
+def test_webserver_variables(fourc_yaml_file, key, expected):
+    """Test that server variables are correctly initialized for different input
+    files."""
+    webserver = FourCWebServer(fourc_yaml_file=fourc_yaml_file)
+
+    # handle expected value if it's a callable
+    expected_value = expected(fourc_yaml_file) if callable(expected) else expected
+
+    assert webserver._server_vars[key] == expected_value
 
 
-@pytest.mark.parametrize(
-    "key, reference_value",
-    [
-        ("render_count", {"change_selected_material": 0, "change_fourc_yaml_file": 0}),
-        ("fourc_yaml_content", FourCInput.from_4C_yaml(DEFAULT_INPUT_FILE)),
-        ("fourc_yaml_name", DEFAULT_INPUT_FILE.name),
-    ],
-)
-def test_webserver_server_variables(fourc_webserver, key, reference_value):
-    """Test if server variables are initialised correctly."""
-    assert fourc_webserver._server_vars[key] == reference_value
+@pytest.mark.parametrize("fourc_yaml_file", TEST_FILES)
+def test_webvserver_vtu_conversion(fourc_yaml_file):
+    """Test that the geometric mesh can be output to a suitable vtu file for
+    different input files."""
+    webserver = FourCWebServer(fourc_yaml_file=fourc_yaml_file)
+
+    # check if path is not None or empty -> this means that a geometry vtu file was exported based on the given yaml file
+    vtu_path = webserver.state.vtu_path
+    assert vtu_path, "vtu_path should not be empty"
+
+    # check whether stem matches expectation
+    assert Path(vtu_path).stem == fourc_yaml_file.stem

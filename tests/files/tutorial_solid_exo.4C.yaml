@@ -3,7 +3,7 @@ PROBLEM TYPE:
 PROBLEM SIZE:
   DIM: 3
 STRUCTURE GEOMETRY:
-  FILE: "tutorial_solid_geo.e"
+  FILE: "tutorial_solid_exo.e"
   SHOW_INFO: "detailed_summary"
   ELEMENT_BLOCKS:
     - ID: 1
@@ -12,6 +12,13 @@ STRUCTURE GEOMETRY:
           MAT: 1
           KINEM: nonlinear
 
+DESIGN VOL DIRICH CONDITIONS:
+  - E: 1
+    NUMDOF: 3
+    ENTITY_TYPE: element_block_id
+    ONOFF: [0, 0, 0]
+    VAL: [0, 0, 0]
+    FUNCT: [0, 0, 0]
 DESIGN SURF DIRICH CONDITIONS:
   - E: 1
     NUMDOF: 3

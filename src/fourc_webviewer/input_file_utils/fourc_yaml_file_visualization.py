@@ -8,6 +8,7 @@ import lnmmeshio
 import numexpr as ne
 import numpy as np
 import plotly.express as px
+from loguru import logger
 
 from fourc_webviewer.input_file_utils.io_utils import (
     get_variable_data_by_name_in_funct_item,
@@ -261,6 +262,8 @@ def construct_funct_string_from_variable_data(
 
         case _:
             # warning that this variable type is not yet supported for visualization
-            print(f"Variable with {variable_data} not supported for visualization!")
+            logger.warning(
+                f"Variable with {variable_data} not supported for visualization!"
+            )
 
     return funct_string
