@@ -134,6 +134,8 @@ class FourCWebServer:
         # This is not always connected to the currently open file.
         self._server_vars["fourc_yaml_file_dir"] = Path(fourc_yaml_file).parent
 
+        self.change_fourc_yaml_file(self.state.fourc_yaml_file)
+
         # create ui
         create_gui(self.server, self._server_vars["render_window"])
 
